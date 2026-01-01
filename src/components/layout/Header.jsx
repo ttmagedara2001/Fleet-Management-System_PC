@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, Radio, Server, Bell, Cpu } from 'lucide-react';
+import { Wifi, Radio, Server, Bell, Cpu, Menu } from 'lucide-react';
 import { useStomp } from '../../contexts/StompContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDevice } from '../../contexts/DeviceContext';
@@ -13,6 +13,29 @@ function Header({ onMenuToggle }) {
 
     return (
         <header className="header">
+            {/* Mobile Menu Button - Only visible on small screens */}
+            <button
+                className="header-menu-btn"
+                onClick={onMenuToggle}
+                aria-label="Open menu"
+                style={{
+                    display: 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '40px',
+                    height: '40px',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    color: 'white',
+                    marginRight: '12px',
+                    transition: 'background 0.2s'
+                }}
+            >
+                <Menu size={24} />
+            </button>
+
             {/* Left - Logo */}
             <div className="header-logo">
                 <div className="header-logo-icon">
@@ -66,8 +89,31 @@ function Header({ onMenuToggle }) {
                     )}
                 </div>
             </div>
+
+            {/* Mobile styles */}
+            <style>{`
+                @media (max-width: 768px) {
+                    .header-menu-btn {
+                        display: flex !important;
+                    }
+                    .header-logo {
+                        display: none;
+                    }
+                    .header-device-selector {
+                        max-width: 150px;
+                        font-size: 14px;
+                    }
+                    .header-icons .header-icon:not(:last-child) {
+                        display: none;
+                    }
+                    .header-icons .w-px {
+                        display: none;
+                    }
+                }
+            `}</style>
         </header>
     );
 }
 
 export default Header;
+
