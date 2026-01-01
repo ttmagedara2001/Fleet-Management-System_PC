@@ -8,29 +8,34 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#faf5ff',
-          100: '#f3e8ff',
-          200: '#e9d5ff',
-          300: '#d8b4fe',
-          400: '#c084fc',
-          500: '#a855f7',
-          600: '#9333ea',
-          700: '#7c3aed',
-          800: '#6b21a8',
-          900: '#581c87',
+          50: '#FAF5FF',
+          100: '#F3E8FF',
+          200: '#E9D5FF',
+          300: '#D8B4FE',
+          400: '#C084FC',
+          500: '#A855F7',
+          600: '#9333EA',
+          700: '#7C3AED',
+          800: '#6B21A8',
+          900: '#581C87',
+        },
+        accent: {
+          gold: '#F59E0B',
+          'gold-light': '#FCD34D',
         },
         status: {
-          normal: '#22c55e',
-          warning: '#f59e0b',
-          critical: '#ef4444',
+          normal: '#22C55E',
+          warning: '#F59E0B',
+          critical: '#EF4444',
         }
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
-      animation: {
-        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'spin-slow': 'spin 3s linear infinite',
+      boxShadow: {
+        'glow-purple': '0 4px 20px rgba(107, 33, 168, 0.4)',
+        'glow-gold': '0 4px 20px rgba(245, 158, 11, 0.4)',
+        'glow-red': '0 4px 20px rgba(239, 68, 68, 0.4)',
       }
     },
   },

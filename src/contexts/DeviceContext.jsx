@@ -28,6 +28,28 @@ const DEFAULT_DEVICE_STATE = {
     lastUpdate: null
 };
 
+// Default thresholds (fallback if no settings saved)
+const DEFAULT_THRESHOLDS = {
+    temperature: { min: 18, max: 28, critical: 32 },
+    humidity: { min: 30, max: 60, critical: 75 },
+    battery: { low: 20, critical: 10 },
+    pressure: { min: 980, max: 1040 }
+};
+
+// Get thresholds from localStorage
+const getThresholds = () => {
+    try {
+        const saved = localStorage.getItem('fabrix_settings');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return parsed.thresholds || DEFAULT_THRESHOLDS;
+        }
+    } catch (error) {
+        console.error('[Device] ❌ Failed to load thresholds:', error);
+    }
+    return DEFAULT_THRESHOLDS;
+};
+
 export function DeviceProvider({ children }) {
     const { isConnected, subscribe, unsubscribe } = useStomp();
 
@@ -49,7 +71,30 @@ export function DeviceProvider({ children }) {
     const currentDeviceData = deviceData[selectedDeviceId] || DEFAULT_DEVICE_STATE;
     const currentRobots = robots[selectedDeviceId] || {};
 
-    // Handle device environment updates
+    // Add alert with deduplication
+    const addAlert = useCallback((alert) => {
+        setAlerts(prev => {
+            // Deduplicate by message within last 30 seconds
+            const isDuplicate = prev.some(
+                a => a.message === alert.message &&
+                    Date.now() - a.timestamp < 30000
+            );
+
+            if (isDuplicate) return prev;
+
+            const newAlert = {
+                ...alert,
+                id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+            };
+
+            console.log('[Device] 🚨 New alert:', newAlert);
+
+            // Keep only last 50 alerts
+            return [newAlert, ...prev].slice(0, 50);
+        });
+    }, []);
+
+    // Handle device environment updates with localStorage thresholds
     const handleEnvironmentUpdate = useCallback((deviceId, payload) => {
         console.log('[Device] 🌡️ Environment update for', deviceId, ':', payload);
 
@@ -67,24 +112,74 @@ export function DeviceProvider({ children }) {
             }
         }));
 
-        // Check for threshold violations
-        if (payload.ambient_temp && payload.ambient_temp > 28) {
-            addAlert({
-                type: 'warning',
-                deviceId,
-                message: `High temperature detected: ${payload.ambient_temp}°C`,
-                timestamp: Date.now()
-            });
+        // Get thresholds from localStorage
+        const thresholds = getThresholds();
+
+        // Check for temperature threshold violations
+        if (payload.ambient_temp) {
+            if (payload.ambient_temp > thresholds.temperature.critical) {
+                addAlert({
+                    type: 'critical',
+                    deviceId,
+                    message: `CRITICAL: Temperature at ${payload.ambient_temp}°C exceeds ${thresholds.temperature.critical}°C`,
+                    timestamp: Date.now()
+                });
+            } else if (payload.ambient_temp > thresholds.temperature.max) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    message: `High temperature detected: ${payload.ambient_temp}°C (max: ${thresholds.temperature.max}°C)`,
+                    timestamp: Date.now()
+                });
+            } else if (payload.ambient_temp < thresholds.temperature.min) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    message: `Low temperature detected: ${payload.ambient_temp}°C (min: ${thresholds.temperature.min}°C)`,
+                    timestamp: Date.now()
+                });
+            }
         }
-        if (payload.ambient_hum && payload.ambient_hum > 60) {
-            addAlert({
-                type: 'warning',
-                deviceId,
-                message: `High humidity detected: ${payload.ambient_hum}%`,
-                timestamp: Date.now()
-            });
+
+        // Check for humidity threshold violations
+        if (payload.ambient_hum) {
+            if (payload.ambient_hum > thresholds.humidity.critical) {
+                addAlert({
+                    type: 'critical',
+                    deviceId,
+                    message: `CRITICAL: Humidity at ${payload.ambient_hum}% exceeds ${thresholds.humidity.critical}%`,
+                    timestamp: Date.now()
+                });
+            } else if (payload.ambient_hum > thresholds.humidity.max) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    message: `High humidity detected: ${payload.ambient_hum}% (max: ${thresholds.humidity.max}%)`,
+                    timestamp: Date.now()
+                });
+            } else if (payload.ambient_hum < thresholds.humidity.min) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    message: `Low humidity detected: ${payload.ambient_hum}% (min: ${thresholds.humidity.min}%)`,
+                    timestamp: Date.now()
+                });
+            }
         }
-    }, []);
+
+        // Check for pressure threshold violations
+        if (payload.atmospheric_pressure) {
+            const pressure = payload.atmospheric_pressure;
+            if (pressure > thresholds.pressure.max || pressure < thresholds.pressure.min) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    message: `Abnormal pressure detected: ${pressure} hPa (range: ${thresholds.pressure.min}-${thresholds.pressure.max} hPa)`,
+                    timestamp: Date.now()
+                });
+            }
+        }
+    }, [addAlert]);
 
     // Handle device state updates
     const handleStateUpdate = useCallback((deviceId, payload) => {
@@ -121,7 +216,7 @@ export function DeviceProvider({ children }) {
                 registerRobot(deviceId, robotId);
             });
         }
-    }, []);
+    }, [addAlert]);
 
     // Handle task summary updates
     const handleTaskSummaryUpdate = useCallback((deviceId, payload) => {
@@ -215,7 +310,7 @@ export function DeviceProvider({ children }) {
                 timestamp: Date.now()
             });
         }
-    }, []);
+    }, [addAlert]);
 
     // Handle robot status updates
     const handleRobotStatusUpdate = useCallback((deviceId, robotId, payload) => {
@@ -237,15 +332,28 @@ export function DeviceProvider({ children }) {
             }
         }));
 
+        // Get thresholds from localStorage
+        const thresholds = getThresholds();
+
         // Check for low battery
-        if (payload.battery && payload.battery < 20) {
-            addAlert({
-                type: 'warning',
-                deviceId,
-                robotId,
-                message: `Robot ${robotId} low battery: ${payload.battery}%`,
-                timestamp: Date.now()
-            });
+        if (payload.battery) {
+            if (payload.battery <= thresholds.battery.critical) {
+                addAlert({
+                    type: 'critical',
+                    deviceId,
+                    robotId,
+                    message: `CRITICAL: Robot ${robotId} battery at ${payload.battery}%`,
+                    timestamp: Date.now()
+                });
+            } else if (payload.battery <= thresholds.battery.low) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    robotId,
+                    message: `Robot ${robotId} low battery: ${payload.battery}%`,
+                    timestamp: Date.now()
+                });
+            }
         }
 
         // Check for obstacle detection
@@ -258,7 +366,7 @@ export function DeviceProvider({ children }) {
                 timestamp: Date.now()
             });
         }
-    }, []);
+    }, [addAlert]);
 
     // Handle robot task updates
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
@@ -277,29 +385,6 @@ export function DeviceProvider({ children }) {
         }));
     }, []);
 
-    // Add alert with deduplication
-    const addAlert = useCallback((alert) => {
-        setAlerts(prev => {
-            // Deduplicate by message within last 30 seconds
-            const isDuplicate = prev.some(
-                a => a.message === alert.message &&
-                    Date.now() - a.timestamp < 30000
-            );
-
-            if (isDuplicate) return prev;
-
-            const newAlert = {
-                ...alert,
-                id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            };
-
-            console.log('[Device] 🚨 New alert:', newAlert);
-
-            // Keep only last 50 alerts
-            return [newAlert, ...prev].slice(0, 50);
-        });
-    }, []);
-
     // Clear alert by ID
     const clearAlert = useCallback((alertId) => {
         setAlerts(prev => prev.filter(a => a.id !== alertId));
@@ -313,44 +398,62 @@ export function DeviceProvider({ children }) {
     // Subscribe to device streams when connected
     useEffect(() => {
         if (!isConnected) {
-            console.log('[Device] ⏳ Waiting for STOMP connection...');
+            console.log('[Fabrix Device] ⏳ Waiting for STOMP connection...');
             return;
         }
 
-        console.log('[Device] 🔌 Setting up device subscriptions...');
+        console.log('[Fabrix Device] 🔌 Setting up device subscriptions...');
+        console.log('[Fabrix Device] 📊 Device count:', DEVICES.length);
 
         DEVICES.forEach(device => {
             const deviceId = device.id;
 
-            // 1. Device Environment Stream (1Hz)
-            const envTopic = `/topic/stream/${deviceId}/env`;
-            console.log('[Device] 📬 Subscribing to:', envTopic);
-            subscribe(envTopic, (payload) => handleEnvironmentUpdate(deviceId, payload));
-            subscriptionsRef.current.push(envTopic);
+            // 1. Live Telemetry Stream - Primary device data stream
+            // Topic: /topic/stream/${deviceId}
+            const streamTopic = `/topic/stream/${deviceId}`;
+            console.log('[Fabrix Device] 📬 Subscribing to live telemetry:', streamTopic);
+            subscribe(streamTopic, (payload) => {
+                console.log('[Fabrix Device] Telemetry received for', deviceId);
+                // Route to appropriate handler based on payload structure
+                if (payload.ambient_temp !== undefined || payload.ambient_hum !== undefined) {
+                    handleEnvironmentUpdate(deviceId, payload);
+                }
+                if (payload.tasks || payload.task_summary) {
+                    handleTaskSummaryUpdate(deviceId, payload);
+                }
+                // Handle robot discovery from stream
+                if (payload.robots && Array.isArray(payload.robots)) {
+                    console.log('[Fabrix Device] 🤖 Discovered robots in stream:', payload.robots);
+                    payload.robots.forEach(robotId => registerRobot(deviceId, robotId));
+                }
+            });
+            subscriptionsRef.current.push(streamTopic);
 
-            // 2. Device State
+            // 2. Device State - Connection state, alerts, system status
+            // Topic: /topic/state/${deviceId}
             const stateTopic = `/topic/state/${deviceId}`;
-            console.log('[Device] 📬 Subscribing to:', stateTopic);
-            subscribe(stateTopic, (payload) => handleStateUpdate(deviceId, payload));
+            console.log('[Fabrix Device] 📬 Subscribing to device state:', stateTopic);
+            subscribe(stateTopic, (payload) => {
+                console.log('[Fabrix Device] State update received for', deviceId);
+                handleStateUpdate(deviceId, payload);
+            });
             subscriptionsRef.current.push(stateTopic);
-
-            // 3. Task Summary
-            const taskTopic = `/topic/stream/${deviceId}/tasks/summary`;
-            console.log('[Device] 📬 Subscribing to:', taskTopic);
-            subscribe(taskTopic, (payload) => handleTaskSummaryUpdate(deviceId, payload));
-            subscriptionsRef.current.push(taskTopic);
         });
 
+        console.log('[Fabrix Device] ✅ Device subscriptions complete');
+
         return () => {
-            console.log('[Device] 🧹 Cleaning up device subscriptions...');
+            console.log('[Fabrix Device] 🧹 Cleaning up device subscriptions...');
             subscriptionsRef.current.forEach(topic => {
                 unsubscribe(topic);
             });
             subscriptionsRef.current = [];
+            console.log('[Fabrix Device] ✅ Cleanup complete');
         };
-    }, [isConnected, subscribe, unsubscribe, handleEnvironmentUpdate, handleStateUpdate, handleTaskSummaryUpdate]);
+    }, [isConnected, subscribe, unsubscribe, handleEnvironmentUpdate, handleStateUpdate, handleTaskSummaryUpdate, registerRobot]);
 
     // Subscribe to robot streams when robots are discovered
+    // Note: Robot-level subscriptions are handled after discovery
     useEffect(() => {
         if (!isConnected) return;
 
@@ -360,38 +463,49 @@ export function DeviceProvider({ children }) {
                 const locationTopic = `/topic/stream/${deviceId}/robots/${robotId}/location`;
                 if (subscriptionsRef.current.includes(locationTopic)) return;
 
-                console.log('[Device] 🤖 Setting up robot subscriptions for:', robotId);
+                console.log('[Fabrix Device] 🤖 Setting up robot subscriptions for:', robotId);
 
                 // Location (10Hz)
-                subscribe(locationTopic, (payload) => handleRobotLocationUpdate(deviceId, robotId, payload));
+                subscribe(locationTopic, (payload) => {
+                    handleRobotLocationUpdate(deviceId, robotId, payload);
+                });
                 subscriptionsRef.current.push(locationTopic);
 
                 // Environment (1Hz)
                 const envTopic = `/topic/stream/${deviceId}/robots/${robotId}/env`;
-                subscribe(envTopic, (payload) => handleRobotEnvUpdate(deviceId, robotId, payload));
+                subscribe(envTopic, (payload) => {
+                    handleRobotEnvUpdate(deviceId, robotId, payload);
+                });
                 subscriptionsRef.current.push(envTopic);
 
                 // Status
                 const statusTopic = `/topic/stream/${deviceId}/robots/${robotId}/status`;
-                subscribe(statusTopic, (payload) => handleRobotStatusUpdate(deviceId, robotId, payload));
+                subscribe(statusTopic, (payload) => {
+                    handleRobotStatusUpdate(deviceId, robotId, payload);
+                });
                 subscriptionsRef.current.push(statusTopic);
 
                 // Tasks
                 const taskTopic = `/topic/stream/${deviceId}/robots/${robotId}/tasks`;
-                subscribe(taskTopic, (payload) => handleRobotTaskUpdate(deviceId, robotId, payload));
+                subscribe(taskTopic, (payload) => {
+                    handleRobotTaskUpdate(deviceId, robotId, payload);
+                });
                 subscriptionsRef.current.push(taskTopic);
+
+                console.log('[Fabrix Device] ✅ Robot subscriptions complete for:', robotId);
             });
         });
     }, [isConnected, robots, subscribe, handleRobotLocationUpdate, handleRobotEnvUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
 
     // For demo purposes, register some mock robots
+    // TODO: Remove this in production - robots should be discovered via WebSocket
     useEffect(() => {
         // Register demo robots after a delay
         const timeout = setTimeout(() => {
-            console.log('[Device] 🎮 Registering demo robots...');
+            console.log('[Fabrix Device] 🎮 Registering demo robots for development...');
             registerRobot('device9988', 'robot-001');
             registerRobot('device9988', 'robot-002');
-            registerRobot('device0011233', 'robot-003');
+            console.log('[Fabrix Device] ✅ Demo robots registered');
         }, 2000);
 
         return () => clearTimeout(timeout);

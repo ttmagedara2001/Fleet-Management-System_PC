@@ -1,516 +1,657 @@
 import React, { useState } from 'react';
 import {
-    Settings as SettingsIcon,
     Thermometer,
     Battery,
-    Zap,
-    Power,
-    Wind,
-    Bot,
-    Save,
-    RotateCcw,
-    AlertTriangle,
     CheckCircle,
-    Loader2
+    ChevronDown
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
-import { useApi } from '../hooks/useApi';
 
-function ToggleSwitch({ enabled, onChange, disabled }) {
-    return (
-        <button
-            type="button"
-            onClick={() => !disabled && onChange(!enabled)}
-            className={`toggle ${enabled ? 'active' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            disabled={disabled}
-        >
-            <div className="toggle-knob" />
-        </button>
-    );
-}
+// Default thresholds
+const DEFAULT_SETTINGS = {
+    temperature: { min: 20, max: 40 },
+    humidity: { min: 20, max: 70 },
+    pressure: { min: 10, max: 40 },
+    battery: { min: 20 },
+    systemMode: 'MANUAL',
+    robotSettings: {}
+};
 
-function SettingCard({ title, description, icon: Icon, children }) {
-    return (
-        <div className="card p-4">
-            <div className="flex items-start gap-3 mb-4">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                    <Icon size={20} className="text-purple-600" />
-                </div>
-                <div>
-                    <h4 className="font-semibold text-gray-900">{title}</h4>
-                    <p className="text-sm text-gray-500">{description}</p>
-                </div>
-            </div>
-            {children}
-        </div>
-    );
-}
+// Load settings from localStorage
+const loadSettings = () => {
+    try {
+        const saved = localStorage.getItem('fabrix_settings');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return { ...DEFAULT_SETTINGS, ...parsed };
+        }
+    } catch (error) {
+        console.error('[Settings] ❌ Failed to load settings:', error);
+    }
+    return DEFAULT_SETTINGS;
+};
 
-function ThresholdInput({ label, value, onChange, unit, min, max }) {
-    return (
-        <div className="flex items-center justify-between py-2">
-            <span className="text-sm text-gray-600">{label}</span>
-            <div className="flex items-center gap-2">
-                <input
-                    type="number"
-                    value={value}
-                    onChange={(e) => onChange(parseFloat(e.target.value))}
-                    min={min}
-                    max={max}
-                    className="input w-20 text-center"
-                />
-                <span className="text-sm text-gray-500 w-8">{unit}</span>
-            </div>
-        </div>
-    );
-}
+// Save settings to localStorage
+const saveSettingsToStorage = (settings) => {
+    try {
+        localStorage.setItem('fabrix_settings', JSON.stringify(settings));
+        return true;
+    } catch (error) {
+        console.error('[Settings] ❌ Failed to save settings:', error);
+        return false;
+    }
+};
+
+// Current readings (mock data)
+const CURRENT_VALUES = {
+    temperature: 24,
+    humidity: 76,
+    pressure: 24,
+    battery: 20
+};
+
+// Options
+const TASK_OPTIONS = ['Select Task', 'MOVE_FOUP', 'PICKUP', 'DELIVERY', 'RETURN_HOME', 'CHARGE'];
+const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay', 'Storage', 'Maintenance'];
 
 function Settings() {
-    const { selectedDeviceId, currentRobots, devices } = useDevice();
-    const {
-        controlAC,
-        controlAirPurifier,
-        setThreshold,
-        setSystemMode,
-        assignRobotTask
-    } = useApi();
+    const { currentRobots } = useDevice();
 
-    // System Controls
-    const [acEnabled, setAcEnabled] = useState(true);
-    const [airPurifierEnabled, setAirPurifierEnabled] = useState(true);
-    const [systemMode, setLocalSystemMode] = useState('AUTOMATED');
+    const [settings, setSettings] = useState(loadSettings);
+    const [deviceSaveMessage, setDeviceSaveMessage] = useState(null);
+    const [robotSaveMessage, setRobotSaveMessage] = useState(null);
 
-    // Thresholds
-    const [tempThreshold, setTempThreshold] = useState(28);
-    const [humidityThreshold, setHumidityThreshold] = useState(60);
-    const [batteryThreshold, setBatteryThreshold] = useState(20);
-    const [pressureThresholdLow, setPressureThresholdLow] = useState(1000);
-    const [pressureThresholdHigh, setPressureThresholdHigh] = useState(1030);
+    // Get connected robots list from WebSocket
+    const connectedRobots = Object.values(currentRobots || {});
 
-    // Task Assignment
-    const [selectedRobot, setSelectedRobot] = useState('');
-    const [taskType, setTaskType] = useState('MOVE_FOUP');
-    const [taskSource, setTaskSource] = useState('');
-    const [taskDestination, setTaskDestination] = useState('');
-    const [taskPriority, setTaskPriority] = useState('NORMAL');
+    const updateDeviceSetting = (category, field, value) => {
+        setSettings(prev => ({
+            ...prev,
+            [category]: field
+                ? { ...prev[category], [field]: Number(value) || value }
+                : value
+        }));
+        setDeviceSaveMessage(null);
+    };
 
-    // Loading states
-    const [savingThresholds, setSavingThresholds] = useState(false);
-    const [savingControls, setSavingControls] = useState(false);
-    const [assigningTask, setAssigningTask] = useState(false);
-    const [saveSuccess, setSaveSuccess] = useState(false);
+    const updateRobotSetting = (robotId, field, value) => {
+        setSettings(prev => ({
+            ...prev,
+            robotSettings: {
+                ...prev.robotSettings,
+                [robotId]: {
+                    ...prev.robotSettings?.[robotId],
+                    [field]: value
+                }
+            }
+        }));
+        setRobotSaveMessage(null);
+    };
 
-    const robots = Object.values(currentRobots || {});
-
-    const handleACToggle = async (enabled) => {
-        console.log('[Settings] ❄️ Toggling AC:', enabled);
-        setAcEnabled(enabled);
-        try {
-            await controlAC(selectedDeviceId, enabled);
-            console.log('[Settings] ✅ AC control successful');
-        } catch (error) {
-            console.error('[Settings] ❌ AC control failed:', error);
-            setAcEnabled(!enabled); // Revert on error
+    const handleSaveDeviceSettings = () => {
+        const success = saveSettingsToStorage(settings);
+        if (success) {
+            setDeviceSaveMessage({ type: 'success', text: 'Device settings saved successfully!' });
+            setTimeout(() => setDeviceSaveMessage(null), 5000);
         }
     };
 
-    const handleAirPurifierToggle = async (enabled) => {
-        console.log('[Settings] 🌬️ Toggling Air Purifier:', enabled);
-        setAirPurifierEnabled(enabled);
-        try {
-            await controlAirPurifier(selectedDeviceId, enabled);
-            console.log('[Settings] ✅ Air purifier control successful');
-        } catch (error) {
-            console.error('[Settings] ❌ Air purifier control failed:', error);
-            setAirPurifierEnabled(!enabled);
+    const handleSaveRobotSettings = () => {
+        const success = saveSettingsToStorage(settings);
+        if (success) {
+            setRobotSaveMessage({ type: 'success', text: 'Robot settings saved successfully!' });
+            setTimeout(() => setRobotSaveMessage(null), 5000);
         }
     };
 
-    const handleModeChange = async (mode) => {
-        console.log('[Settings] ⚙️ Changing system mode:', mode);
-        setLocalSystemMode(mode);
-        try {
-            await setSystemMode(selectedDeviceId, mode);
-            console.log('[Settings] ✅ Mode change successful');
-        } catch (error) {
-            console.error('[Settings] ❌ Mode change failed:', error);
-        }
+    const getRobotStatus = (robot) => {
+        const state = robot?.status?.state;
+        if (state === 'ERROR' || state === 'STOPPED') return 'error';
+        if (state === 'CHARGING' || state === 'IDLE') return 'warning';
+        return 'online';
     };
-
-    const handleSaveThresholds = async () => {
-        console.log('[Settings] 💾 Saving thresholds...');
-        setSavingThresholds(true);
-
-        try {
-            await Promise.all([
-                setThreshold(selectedDeviceId, 'temperature_max', tempThreshold),
-                setThreshold(selectedDeviceId, 'humidity_max', humidityThreshold),
-                setThreshold(selectedDeviceId, 'battery_min', batteryThreshold),
-                setThreshold(selectedDeviceId, 'pressure_min', pressureThresholdLow),
-                setThreshold(selectedDeviceId, 'pressure_max', pressureThresholdHigh),
-            ]);
-
-            console.log('[Settings] ✅ Thresholds saved successfully');
-            setSaveSuccess(true);
-            setTimeout(() => setSaveSuccess(false), 3000);
-        } catch (error) {
-            console.error('[Settings] ❌ Failed to save thresholds:', error);
-        } finally {
-            setSavingThresholds(false);
-        }
-    };
-
-    const handleAssignTask = async () => {
-        if (!selectedRobot || !taskSource || !taskDestination) {
-            console.warn('[Settings] ⚠️ Missing task parameters');
-            return;
-        }
-
-        console.log('[Settings] 🤖 Assigning task to robot:', selectedRobot);
-        setAssigningTask(true);
-
-        try {
-            await assignRobotTask(selectedDeviceId, selectedRobot, {
-                type: taskType,
-                source: taskSource,
-                destination: taskDestination,
-                priority: taskPriority
-            });
-
-            console.log('[Settings] ✅ Task assigned successfully');
-            // Clear form
-            setTaskSource('');
-            setTaskDestination('');
-        } catch (error) {
-            console.error('[Settings] ❌ Task assignment failed:', error);
-        } finally {
-            setAssigningTask(false);
-        }
-    };
-
-    const locations = [
-        { id: 'cleanroom-a', name: 'Cleanroom A' },
-        { id: 'cleanroom-b', name: 'Cleanroom B' },
-        { id: 'loading-bay', name: 'Loading Bay' },
-        { id: 'storage-1', name: 'Storage Zone 1' },
-        { id: 'storage-2', name: 'Storage Zone 2' },
-        { id: 'maintenance', name: 'Maintenance Area' },
-    ];
-
-    const taskTypes = [
-        { id: 'MOVE_FOUP', name: 'Move FOUP' },
-        { id: 'PICKUP', name: 'Pickup' },
-        { id: 'DELIVERY', name: 'Delivery' },
-        { id: 'RETURN_HOME', name: 'Return to Home' },
-        { id: 'CHARGE', name: 'Go to Charger' },
-    ];
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-900">Settings</h2>
-                    <p className="text-sm text-gray-500">
-                        Configure thresholds, controls, and automation for{' '}
-                        <span className="text-purple-600 font-medium">{selectedDeviceId}</span>
-                    </p>
+        <div style={{ padding: '24px 32px' }}>
+            {/* Device Settings Section */}
+            <div
+                style={{
+                    background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
+                    borderRadius: '24px',
+                    padding: '24px 28px',
+                    marginBottom: '24px'
+                }}
+            >
+                <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', marginBottom: '20px' }}>
+                    Device Settings
+                </h2>
+
+                {/* Threshold Cards - 4 columns */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '20px' }}>
+                    {/* Temperature */}
+                    <div style={{ background: 'white', borderRadius: '16px', padding: '16px 18px' }}>
+                        <h3 style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#1F2937',
+                            paddingBottom: '8px',
+                            marginBottom: '8px',
+                            borderBottom: '2px solid #7C3AED'
+                        }}>
+                            Temperature
+                        </h3>
+                        <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
+                            Current Temperature: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.temperature}°C</span>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Min (°C)</label>
+                                <input
+                                    type="text"
+                                    value={settings.temperature?.min || 20}
+                                    onChange={(e) => updateDeviceSetting('temperature', 'min', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Max (°C)</label>
+                                <input
+                                    type="text"
+                                    value={settings.temperature?.max || 40}
+                                    onChange={(e) => updateDeviceSetting('temperature', 'max', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Humidity */}
+                    <div style={{ background: 'white', borderRadius: '16px', padding: '16px 18px' }}>
+                        <h3 style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#1F2937',
+                            paddingBottom: '8px',
+                            marginBottom: '8px',
+                            borderBottom: '2px solid #7C3AED'
+                        }}>
+                            Humidity
+                        </h3>
+                        <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
+                            Current Humidity: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.humidity}%</span>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Min (%)</label>
+                                <input
+                                    type="text"
+                                    value={settings.humidity?.min || 20}
+                                    onChange={(e) => updateDeviceSetting('humidity', 'min', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Max (%)</label>
+                                <input
+                                    type="text"
+                                    value={settings.humidity?.max || 70}
+                                    onChange={(e) => updateDeviceSetting('humidity', 'max', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Pressure */}
+                    <div style={{ background: 'white', borderRadius: '16px', padding: '16px 18px' }}>
+                        <h3 style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#1F2937',
+                            paddingBottom: '8px',
+                            marginBottom: '8px',
+                            borderBottom: '2px solid #7C3AED'
+                        }}>
+                            Pressure
+                        </h3>
+                        <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
+                            Current Pressure: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.pressure} bar</span>
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Min (bar)</label>
+                                <input
+                                    type="text"
+                                    value={settings.pressure?.min || 10}
+                                    onChange={(e) => updateDeviceSetting('pressure', 'min', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Max (bar)</label>
+                                <input
+                                    type="text"
+                                    value={settings.pressure?.max || 40}
+                                    onChange={(e) => updateDeviceSetting('pressure', 'max', e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Battery */}
+                    <div style={{ background: 'white', borderRadius: '16px', padding: '16px 18px' }}>
+                        <h3 style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#1F2937',
+                            paddingBottom: '8px',
+                            marginBottom: '8px',
+                            borderBottom: '2px solid #7C3AED'
+                        }}>
+                            Battery
+                        </h3>
+                        <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
+                            Current Battery: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.battery}%</span>
+                        </p>
+                        <div>
+                            <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Min (%)</label>
+                            <input
+                                type="text"
+                                value={settings.battery?.min || 20}
+                                onChange={(e) => updateDeviceSetting('battery', 'min', e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    background: '#F3F4F6',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            />
+                        </div>
+                    </div>
                 </div>
 
-                {saveSuccess && (
-                    <div className="flex items-center gap-2 text-green-600 bg-green-50 px-4 py-2 rounded-lg">
-                        <CheckCircle size={16} />
-                        <span className="text-sm font-medium">Settings saved!</span>
+                {/* System Control */}
+                <div style={{ background: 'white', borderRadius: '16px', padding: '16px 20px', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: '600', color: '#1F2937' }}>System Control :</span>
+                        <span style={{ fontSize: '14px', fontWeight: '700', color: '#7C3AED' }}>{settings.systemMode}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '13px', color: '#6B7280' }}>Turn on for Automatic Mode:</span>
+                        <button
+                            onClick={() => updateDeviceSetting('systemMode', null, settings.systemMode === 'MANUAL' ? 'AUTOMATIC' : 'MANUAL')}
+                            style={{
+                                width: '52px',
+                                height: '28px',
+                                borderRadius: '14px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                background: settings.systemMode === 'AUTOMATIC' ? '#7C3AED' : '#D1D5DB',
+                                transition: 'background 0.3s'
+                            }}
+                        >
+                            <span style={{
+                                position: 'absolute',
+                                top: '4px',
+                                left: settings.systemMode === 'AUTOMATIC' ? '28px' : '4px',
+                                width: '20px',
+                                height: '20px',
+                                background: 'white',
+                                borderRadius: '50%',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                                transition: 'left 0.3s'
+                            }} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Save Message */}
+                {deviceSaveMessage && (
+                    <div style={{
+                        marginBottom: '16px',
+                        padding: '12px 16px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: '#F0FDF4',
+                        color: '#15803D',
+                        border: '1px solid #BBF7D0'
+                    }}>
+                        <CheckCircle size={18} />
+                        {deviceSaveMessage.text}
                     </div>
                 )}
+
+                {/* Save Device Settings Button */}
+                <button
+                    onClick={handleSaveDeviceSettings}
+                    style={{
+                        width: '100%',
+                        padding: '14px 24px',
+                        background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '50px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 15px rgba(124, 58, 237, 0.35)'
+                    }}
+                >
+                    Save Device Settings
+                </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* System Controls */}
-                <SettingCard
-                    title="System Controls"
-                    description="Manual control of environmental systems"
-                    icon={Power}
-                >
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <div className="flex items-center gap-3">
-                                <Zap size={18} className="text-blue-500" />
-                                <div>
-                                    <p className="font-medium text-gray-900">Air Conditioning</p>
-                                    <p className="text-xs text-gray-500">Climate control system</p>
-                                </div>
-                            </div>
-                            <ToggleSwitch enabled={acEnabled} onChange={handleACToggle} />
-                        </div>
+            {/* Robot Settings Section */}
+            <div
+                style={{
+                    background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
+                    borderRadius: '24px',
+                    padding: '24px 28px'
+                }}
+            >
+                <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', marginBottom: '20px' }}>
+                    Robot Settings
+                    <span style={{ fontSize: '14px', fontWeight: '400', color: '#6B7280', marginLeft: '12px' }}>
+                        ({connectedRobots.length} robot{connectedRobots.length !== 1 ? 's' : ''} connected)
+                    </span>
+                </h2>
 
-                        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <div className="flex items-center gap-3">
-                                <Wind size={18} className="text-green-500" />
-                                <div>
-                                    <p className="font-medium text-gray-900">Air Purifier</p>
-                                    <p className="text-xs text-gray-500">Particle filtration system</p>
-                                </div>
-                            </div>
-                            <ToggleSwitch enabled={airPurifierEnabled} onChange={handleAirPurifierToggle} />
-                        </div>
+                {/* No Robots Connected Message */}
+                {connectedRobots.length === 0 ? (
+                    <div style={{
+                        background: 'rgba(237, 233, 254, 0.6)',
+                        borderRadius: '16px',
+                        padding: '40px 20px',
+                        textAlign: 'center',
+                        border: '1px solid #DDD6FE',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>🤖</div>
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1F2937', marginBottom: '8px' }}>
+                            No Robots Connected
+                        </h3>
+                        <p style={{ fontSize: '14px', color: '#6B7280' }}>
+                            Robots will appear here once they connect via WebSocket.
+                            <br />
+                            The green indicator shows connection status.
+                        </p>
+                    </div>
+                ) : (
+                    /* Robot Cards - Dynamic grid based on connected robots */
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${Math.min(connectedRobots.length, 3)}, 1fr)`,
+                        gap: '16px',
+                        marginBottom: '20px'
+                    }}>
+                        {connectedRobots.map((robot, index) => {
+                            const robotId = robot.id;
+                            const robotSettings = settings.robotSettings?.[robotId] || {};
+                            const status = getRobotStatus(robot);
+                            // Extract robot number from ID or use index
+                            const robotNumber = robotId.match(/\d+/)?.[0] || String(index + 1).padStart(2, '0');
+                            const displayId = `R-${robotNumber}`;
 
-                        <div className="pt-2">
-                            <p className="text-sm font-medium text-gray-700 mb-2">System Mode</p>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => handleModeChange('MANUAL')}
-                                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${systemMode === 'MANUAL'
-                                            ? 'bg-amber-500 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
+                            return (
+                                <div
+                                    key={robotId}
+                                    style={{
+                                        background: 'rgba(237, 233, 254, 0.6)',
+                                        borderRadius: '16px',
+                                        padding: '16px 18px',
+                                        border: '1px solid #DDD6FE'
+                                    }}
                                 >
-                                    Manual
-                                </button>
-                                <button
-                                    onClick={() => handleModeChange('AUTOMATED')}
-                                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${systemMode === 'AUTOMATED'
-                                            ? 'bg-green-500 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    Automated
-                                </button>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">
-                                {systemMode === 'AUTOMATED'
-                                    ? 'System will auto-adjust based on thresholds'
-                                    : 'Manual control of all systems'
-                                }
-                            </p>
-                        </div>
-                    </div>
-                </SettingCard>
+                                    {/* Robot Header */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                                        <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1F2937' }}>{displayId}</h3>
+                                        <div style={{
+                                            width: '10px',
+                                            height: '10px',
+                                            borderRadius: '50%',
+                                            background: status === 'online' ? '#22C55E' : status === 'warning' ? '#F59E0B' : '#EF4444',
+                                            boxShadow: `0 0 8px ${status === 'online' ? '#22C55E' : status === 'warning' ? '#F59E0B' : '#EF4444'}`
+                                        }} />
+                                    </div>
 
-                {/* Thresholds */}
-                <SettingCard
-                    title="Alert Thresholds"
-                    description="Configure alert trigger points"
-                    icon={AlertTriangle}
+                                    {/* Task */}
+                                    <div style={{ marginBottom: '10px' }}>
+                                        <label style={{ fontSize: '13px', color: '#4B5563', display: 'block', marginBottom: '4px' }}>Task:</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <select
+                                                value={robotSettings.task || ''}
+                                                onChange={(e) => updateRobotSetting(robotId, 'task', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 32px 8px 12px',
+                                                    background: 'white',
+                                                    border: '1px solid #E5E7EB',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    appearance: 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {TASK_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt === 'Select Task' ? '' : opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }} />
+                                        </div>
+                                    </div>
+
+                                    {/* Initiate Location */}
+                                    <div style={{ marginBottom: '10px' }}>
+                                        <label style={{ fontSize: '13px', color: '#4B5563', display: 'block', marginBottom: '4px' }}>Initiate Location :</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <select
+                                                value={robotSettings.source || ''}
+                                                onChange={(e) => updateRobotSetting(robotId, 'source', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 32px 8px 12px',
+                                                    background: 'white',
+                                                    border: '1px solid #E5E7EB',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    appearance: 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {LOCATION_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }} />
+                                        </div>
+                                    </div>
+
+                                    {/* Destination */}
+                                    <div style={{ marginBottom: '14px' }}>
+                                        <label style={{ fontSize: '13px', color: '#4B5563', display: 'block', marginBottom: '4px' }}>Destination:</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <select
+                                                value={robotSettings.destination || ''}
+                                                onChange={(e) => updateRobotSetting(robotId, 'destination', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 32px 8px 12px',
+                                                    background: 'white',
+                                                    border: '1px solid #E5E7EB',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    appearance: 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {LOCATION_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', pointerEvents: 'none' }} />
+                                        </div>
+                                    </div>
+
+                                    {/* Threshold Inputs */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                        <div style={{ background: 'white', borderRadius: '10px', padding: '10px 8px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                <Battery size={12} style={{ color: '#6B7280' }} />
+                                                <span style={{ fontSize: '10px', color: '#6B7280' }}>Min (%)</span>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={robotSettings.batteryMin || '20'}
+                                                onChange={(e) => updateRobotSetting(robotId, 'batteryMin', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    textAlign: 'center',
+                                                    fontSize: '12px',
+                                                    fontWeight: '600',
+                                                    background: 'transparent',
+                                                    border: 'none',
+                                                    color: '#374151'
+                                                }}
+                                            />
+                                        </div>
+                                        <div style={{ background: 'white', borderRadius: '10px', padding: '10px 8px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                <Thermometer size={12} style={{ color: '#6B7280' }} />
+                                                <span style={{ fontSize: '10px', color: '#6B7280' }}>Min (°C)</span>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={robotSettings.tempMin || '20'}
+                                                onChange={(e) => updateRobotSetting(robotId, 'tempMin', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    textAlign: 'center',
+                                                    fontSize: '12px',
+                                                    fontWeight: '600',
+                                                    background: 'transparent',
+                                                    border: 'none',
+                                                    color: '#374151'
+                                                }}
+                                            />
+                                        </div>
+                                        <div style={{ background: 'white', borderRadius: '10px', padding: '10px 8px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                <Thermometer size={12} style={{ color: '#6B7280' }} />
+                                                <span style={{ fontSize: '10px', color: '#6B7280' }}>Max (°C)</span>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={robotSettings.tempMax || '45'}
+                                                onChange={(e) => updateRobotSetting(robotId, 'tempMax', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    textAlign: 'center',
+                                                    fontSize: '12px',
+                                                    fontWeight: '600',
+                                                    background: 'transparent',
+                                                    border: 'none',
+                                                    color: '#374151'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Save Message */}
+                {robotSaveMessage && (
+                    <div style={{
+                        marginBottom: '16px',
+                        padding: '12px 16px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: '#F0FDF4',
+                        color: '#15803D',
+                        border: '1px solid #BBF7D0'
+                    }}>
+                        <CheckCircle size={18} />
+                        {robotSaveMessage.text}
+                    </div>
+                )}
+
+                {/* Save Robot Settings Button */}
+                <button
+                    onClick={handleSaveRobotSettings}
+                    style={{
+                        width: '100%',
+                        padding: '14px 24px',
+                        background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '50px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 15px rgba(124, 58, 237, 0.35)'
+                    }}
                 >
-                    <div className="space-y-1">
-                        <ThresholdInput
-                            label="Temperature Max"
-                            value={tempThreshold}
-                            onChange={setTempThreshold}
-                            unit="°C"
-                            min={15}
-                            max={40}
-                        />
-                        <ThresholdInput
-                            label="Humidity Max"
-                            value={humidityThreshold}
-                            onChange={setHumidityThreshold}
-                            unit="%"
-                            min={20}
-                            max={80}
-                        />
-                        <ThresholdInput
-                            label="Battery Min"
-                            value={batteryThreshold}
-                            onChange={setBatteryThreshold}
-                            unit="%"
-                            min={5}
-                            max={50}
-                        />
-                        <ThresholdInput
-                            label="Pressure Min"
-                            value={pressureThresholdLow}
-                            onChange={setPressureThresholdLow}
-                            unit="hPa"
-                            min={950}
-                            max={1050}
-                        />
-                        <ThresholdInput
-                            label="Pressure Max"
-                            value={pressureThresholdHigh}
-                            onChange={setPressureThresholdHigh}
-                            unit="hPa"
-                            min={950}
-                            max={1050}
-                        />
-                    </div>
-
-                    <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
-                        <button
-                            onClick={handleSaveThresholds}
-                            disabled={savingThresholds}
-                            className="btn btn-primary flex-1"
-                        >
-                            {savingThresholds ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Save size={16} />
-                            )}
-                            Save Thresholds
-                        </button>
-                        <button
-                            onClick={() => {
-                                setTempThreshold(28);
-                                setHumidityThreshold(60);
-                                setBatteryThreshold(20);
-                                setPressureThresholdLow(1000);
-                                setPressureThresholdHigh(1030);
-                            }}
-                            className="btn btn-secondary"
-                        >
-                            <RotateCcw size={16} />
-                            Reset
-                        </button>
-                    </div>
-                </SettingCard>
-
-                {/* Task Assignment */}
-                <SettingCard
-                    title="Robot Task Assignment"
-                    description="Assign tasks to active robots"
-                    icon={Bot}
-                >
-                    <div className="space-y-4">
-                        {/* Robot Selection */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Select Robot
-                            </label>
-                            <select
-                                value={selectedRobot}
-                                onChange={(e) => setSelectedRobot(e.target.value)}
-                                className="select"
-                            >
-                                <option value="">Choose a robot...</option>
-                                {robots.map(robot => (
-                                    <option key={robot.id} value={robot.id}>
-                                        {robot.id} - {robot.status?.state || 'Unknown'}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Task Type */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Task Type
-                            </label>
-                            <select
-                                value={taskType}
-                                onChange={(e) => setTaskType(e.target.value)}
-                                className="select"
-                            >
-                                {taskTypes.map(type => (
-                                    <option key={type.id} value={type.id}>{type.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Source */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Source Location
-                            </label>
-                            <select
-                                value={taskSource}
-                                onChange={(e) => setTaskSource(e.target.value)}
-                                className="select"
-                            >
-                                <option value="">Select source...</option>
-                                {locations.map(loc => (
-                                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Destination */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Destination Location
-                            </label>
-                            <select
-                                value={taskDestination}
-                                onChange={(e) => setTaskDestination(e.target.value)}
-                                className="select"
-                            >
-                                <option value="">Select destination...</option>
-                                {locations.map(loc => (
-                                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Priority */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Priority
-                            </label>
-                            <div className="flex gap-2">
-                                {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map(priority => (
-                                    <button
-                                        key={priority}
-                                        onClick={() => setTaskPriority(priority)}
-                                        className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors ${taskPriority === priority
-                                                ? priority === 'URGENT' ? 'bg-red-500 text-white'
-                                                    : priority === 'HIGH' ? 'bg-amber-500 text-white'
-                                                        : 'bg-purple-500 text-white'
-                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        {priority}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleAssignTask}
-                            disabled={assigningTask || !selectedRobot || !taskSource || !taskDestination}
-                            className="btn btn-primary w-full"
-                        >
-                            {assigningTask ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Bot size={16} />
-                            )}
-                            Assign Task
-                        </button>
-                    </div>
-                </SettingCard>
-
-                {/* Device Info */}
-                <SettingCard
-                    title="Device Configuration"
-                    description="Current device information"
-                    icon={SettingsIcon}
-                >
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <span className="text-sm text-gray-500">Device ID</span>
-                            <span className="text-sm font-mono font-medium text-gray-900">{selectedDeviceId}</span>
-                        </div>
-                        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <span className="text-sm text-gray-500">Zone</span>
-                            <span className="text-sm font-medium text-gray-900">
-                                {devices.find(d => d.id === selectedDeviceId)?.zone || 'Unknown'}
-                            </span>
-                        </div>
-                        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <span className="text-sm text-gray-500">Active Robots</span>
-                            <span className="text-sm font-medium text-purple-600">{robots.length}</span>
-                        </div>
-                        <div className="flex items-center justify-between py-2">
-                            <span className="text-sm text-gray-500">System Mode</span>
-                            <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${systemMode === 'AUTOMATED'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-amber-100 text-amber-700'
-                                }`}>
-                                {systemMode}
-                            </span>
-                        </div>
-                    </div>
-                </SettingCard>
+                    Save Robot Settings
+                </button>
             </div>
         </div>
     );

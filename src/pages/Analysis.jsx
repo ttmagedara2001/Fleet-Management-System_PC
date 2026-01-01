@@ -1,14 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
-    Calendar,
     Download,
     RefreshCw,
-    Filter,
-    TrendingUp,
     Thermometer,
     Droplets,
     Battery,
-    Loader2
+    Loader2,
+    Clock,
+    Globe
 } from 'lucide-react';
 import {
     LineChart,
@@ -18,405 +17,522 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    AreaChart,
-    Area,
     Legend
 } from 'recharts';
 import { useDevice } from '../contexts/DeviceContext';
-import { useApi } from '../hooks/useApi';
 
-// Mock historical data for display
-const generateMockData = (hours = 24, metric = 'temp') => {
+// Generate mock historical data for the chart
+const generateHistoricalData = (hours = 6) => {
     const data = [];
     const now = new Date();
+    const pointsCount = hours * 12; // 5 minute intervals
 
-    for (let i = hours; i >= 0; i--) {
-        const date = new Date(now.getTime() - i * 60 * 60 * 1000);
-        const baseValue = metric === 'temp' ? 22 : metric === 'humidity' ? 45 : 75;
-        const variance = Math.sin(i / 4) * 2 + (Math.random() - 0.5) * 3;
+    for (let i = pointsCount; i >= 0; i--) {
+        const date = new Date(now.getTime() - i * 5 * 60 * 1000);
+
+        // Create realistic sensor patterns
+        const timeOfDay = date.getHours() + date.getMinutes() / 60;
+        const tempBase = 22 + Math.sin(timeOfDay / 4) * 3;
+        const humidityBase = 45 + Math.cos(timeOfDay / 6) * 10;
+        const batteryBase = 85 - (i / pointsCount) * 15;
 
         data.push({
-            time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            date: date.toLocaleDateString(),
-            value: +(baseValue + variance).toFixed(1),
-            threshold: metric === 'temp' ? 28 : metric === 'humidity' ? 60 : 20
+            time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+            fullTime: date.toISOString(),
+            temp: +(tempBase + (Math.random() - 0.5) * 4).toFixed(1),
+            humidity: +(humidityBase + (Math.random() - 0.5) * 8).toFixed(1),
+            battery: +(batteryBase + (Math.random() - 0.5) * 5).toFixed(0)
         });
     }
 
     return data;
 };
 
-function DateRangePicker({ startDate, endDate, onStartChange, onEndChange }) {
-    return (
-        <div className="flex items-center gap-2">
-            <div className="relative">
-                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => onStartChange(e.target.value)}
-                    className="input pl-9 pr-4 py-2 text-sm"
-                />
-            </div>
-            <span className="text-gray-400">to</span>
-            <div className="relative">
-                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => onEndChange(e.target.value)}
-                    className="input pl-9 pr-4 py-2 text-sm"
-                />
-            </div>
-        </div>
-    );
-}
-
-function ChartCard({ title, icon: Icon, data, dataKey = 'value', color = '#9333ea', unit = '' }) {
-    return (
-        <div className="card p-4">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <Icon size={18} className="text-purple-600" />
-                    <h4 className="font-semibold text-gray-900">{title}</h4>
-                </div>
-                <div className="flex items-center gap-4 text-xs">
-                    <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                        Current
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full border-2 border-red-500" />
-                        Threshold
-                    </span>
-                </div>
-            </div>
-
-            <div className="h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={data}>
-                        <defs>
-                            <linearGradient id={`gradient-${title}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                                <stop offset="95%" stopColor={color} stopOpacity={0} />
-                            </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis
-                            dataKey="time"
-                            tick={{ fontSize: 11, fill: '#6b7280' }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#e5e7eb' }}
-                        />
-                        <YAxis
-                            tick={{ fontSize: 11, fill: '#6b7280' }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#e5e7eb' }}
-                            unit={unit}
-                        />
-                        <Tooltip
-                            contentStyle={{
-                                backgroundColor: 'white',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-                            }}
-                            formatter={(value) => [`${value}${unit}`, title]}
-                        />
-                        <Area
-                            type="monotone"
-                            dataKey={dataKey}
-                            stroke={color}
-                            strokeWidth={2}
-                            fill={`url(#gradient-${title})`}
-                        />
-                        <Line
-                            type="monotone"
-                            dataKey="threshold"
-                            stroke="#ef4444"
-                            strokeWidth={2}
-                            strokeDasharray="5 5"
-                            dot={false}
-                        />
-                    </AreaChart>
-                </ResponsiveContainer>
-            </div>
-        </div>
-    );
-}
-
-function DataTable({ data, columns }) {
-    return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-                <thead>
-                    <tr className="border-b border-gray-200">
-                        {columns.map(col => (
-                            <th key={col.key} className="text-left py-3 px-4 font-semibold text-gray-700">
-                                {col.label}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.map((row, i) => (
-                        <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            {columns.map(col => (
-                                <td key={col.key} className="py-3 px-4 text-gray-600">
-                                    {col.render ? col.render(row[col.key], row) : row[col.key]}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
-}
+// Mock task history data
+const generateTaskHistory = () => [
+    { taskId: 'TSK-001', taskName: 'Material Transport', robotId: 'R-001', status: 'Completed' },
+    { taskId: 'TSK-002', taskName: 'Station Inspection', robotId: 'R-002', status: 'Completed' },
+    { taskId: 'TSK-003', taskName: 'Package Delivery', robotId: 'R-001', status: 'In Progress' },
+    { taskId: 'TSK-004', taskName: 'Inventory Scan', robotId: 'R-003', status: 'Pending' },
+    { taskId: 'TSK-005', taskName: 'Charging Return', robotId: 'R-002', status: 'Completed' },
+];
 
 function Analysis() {
-    const { selectedDeviceId, devices } = useDevice();
-    const { getDeviceStreamData, getTopicStreamData } = useApi();
+    const { selectedDeviceId } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
-    const [selectedMetric, setSelectedMetric] = useState('temperature');
-    const [timeRange, setTimeRange] = useState('24h');
-    const [startDate, setStartDate] = useState(
-        new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    );
-    const [endDate, setEndDate] = useState(
-        new Date().toISOString().split('T')[0]
-    );
-    const [streamData, setStreamData] = useState(null);
+    const [timeRange, setTimeRange] = useState('6h');
+    const [interval, setInterval] = useState('5 Seconds');
+    const [activeMetrics, setActiveMetrics] = useState({
+        temp: true,
+        humidity: true,
+        battery: true
+    });
 
-    // Generate mock data based on metric
-    const chartData = generateMockData(24, selectedMetric === 'temperature' ? 'temp' : selectedMetric);
+    // Generate chart data based on time range
+    const chartData = useMemo(() => {
+        const hoursMap = { '1h': 1, '6h': 6, '12h': 12, '24h': 24 };
+        return generateHistoricalData(hoursMap[timeRange] || 6);
+    }, [timeRange]);
 
-    const fetchHistoricalData = useCallback(async () => {
+    const taskHistory = useMemo(() => generateTaskHistory(), []);
+
+    const toggleMetric = (metric) => {
+        setActiveMetrics(prev => ({
+            ...prev,
+            [metric]: !prev[metric]
+        }));
+    };
+
+    const handleExportCSV = () => {
+        console.log('[Analysis] 📥 Exporting CSV...');
+        // CSV export logic
+    };
+
+    const handleFetchData = async () => {
         setIsLoading(true);
         console.log('[Analysis] 📊 Fetching historical data...');
 
-        try {
-            const data = await getDeviceStreamData(
-                selectedDeviceId,
-                `${startDate}T00:00:00Z`,
-                `${endDate}T23:59:59Z`,
-                0,
-                100
-            );
+        // Simulate API call
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-            console.log('[Analysis] ✅ Data received:', data);
-            setStreamData(data);
-        } catch (error) {
-            console.error('[Analysis] ❌ Failed to fetch data:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [selectedDeviceId, startDate, endDate, getDeviceStreamData]);
+        setIsLoading(false);
+        console.log('[Analysis] ✅ Data refreshed');
+    };
 
-    const metrics = [
-        { id: 'temperature', label: 'Temperature', icon: Thermometer, unit: '°C', color: '#ef4444' },
-        { id: 'humidity', label: 'Humidity', icon: Droplets, unit: '%', color: '#3b82f6' },
-        { id: 'battery', label: 'Battery', icon: Battery, unit: '%', color: '#22c55e' },
-    ];
-
-    const timeRanges = [
-        { id: '1h', label: '1 Hour' },
-        { id: '6h', label: '6 Hours' },
-        { id: '24h', label: '24 Hours' },
-        { id: '7d', label: '7 Days' },
-        { id: 'custom', label: 'Custom' },
-    ];
-
-    // Mock table data
-    const tableData = chartData.slice(0, 10).map((d, i) => ({
-        timestamp: `${d.date} ${d.time}`,
-        temperature: (22 + Math.random() * 3).toFixed(1),
-        humidity: (45 + Math.random() * 5).toFixed(1),
-        pressure: (1013 + Math.random() * 5).toFixed(0),
-        status: i % 5 === 0 ? 'Warning' : 'Normal'
-    }));
-
-    const tableColumns = [
-        { key: 'timestamp', label: 'Timestamp' },
-        { key: 'temperature', label: 'Temp (°C)' },
-        { key: 'humidity', label: 'Humidity (%)' },
-        { key: 'pressure', label: 'Pressure (hPa)' },
-        {
-            key: 'status',
-            label: 'Status',
-            render: (value) => (
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${value === 'Normal' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                    {value}
-                </span>
-            )
+    // Styles
+    const styles = {
+        container: {
+            padding: '24px',
+            maxWidth: '100%',
+            minHeight: '100%'
         },
-    ];
+        header: {
+            marginBottom: '24px'
+        },
+        title: {
+            fontSize: '24px',
+            fontWeight: '600',
+            color: '#1F2937',
+            marginBottom: '4px'
+        },
+        subtitle: {
+            fontSize: '14px',
+            color: '#6B7280'
+        },
+        deviceName: {
+            color: '#7C3AED',
+            fontWeight: '500'
+        },
+        chartCard: {
+            background: 'white',
+            borderRadius: '16px',
+            border: '1px solid #E5E7EB',
+            padding: '24px',
+            marginBottom: '24px'
+        },
+        chartHeader: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '20px',
+            flexWrap: 'wrap',
+            gap: '16px'
+        },
+        chartTitle: {
+            fontSize: '16px',
+            fontWeight: '600',
+            color: '#374151'
+        },
+        filterGroup: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap'
+        },
+        filterPill: {
+            padding: '6px 12px',
+            borderRadius: '20px',
+            fontSize: '12px',
+            fontWeight: '500',
+            border: '1px solid #E5E7EB',
+            background: 'white',
+            color: '#6B7280',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.2s'
+        },
+        filterPillActive: {
+            background: '#F3F4F6',
+            borderColor: '#9CA3AF'
+        },
+        legendGroup: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap'
+        },
+        legendItem: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+        },
+        legendDot: {
+            width: '10px',
+            height: '10px',
+            borderRadius: '50%'
+        },
+        controlGroup: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+        },
+        select: {
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: '1px solid #E5E7EB',
+            fontSize: '13px',
+            color: '#374151',
+            background: 'white',
+            cursor: 'pointer',
+            outline: 'none'
+        },
+        exportBtn: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: '1px solid #E5E7EB',
+            background: 'white',
+            color: '#374151',
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+        },
+        chartContainer: {
+            height: '350px',
+            width: '100%'
+        },
+        tableCard: {
+            background: 'white',
+            borderRadius: '16px',
+            border: '1px solid #E5E7EB',
+            overflow: 'hidden'
+        },
+        tableHeader: {
+            padding: '20px 24px',
+            borderBottom: '1px solid #E5E7EB'
+        },
+        tableTitle: {
+            fontSize: '18px',
+            fontWeight: '600',
+            color: '#1F2937'
+        },
+        table: {
+            width: '100%',
+            borderCollapse: 'collapse'
+        },
+        th: {
+            textAlign: 'left',
+            padding: '16px 24px',
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#374151',
+            borderBottom: '1px solid #E5E7EB',
+            background: '#FAFAFA'
+        },
+        td: {
+            padding: '16px 24px',
+            fontSize: '14px',
+            color: '#6B7280',
+            borderBottom: '1px solid #F3F4F6'
+        },
+        statusBadge: {
+            padding: '4px 12px',
+            borderRadius: '20px',
+            fontSize: '12px',
+            fontWeight: '500'
+        },
+        emptyRow: {
+            height: '48px',
+            borderBottom: '1px solid #F3F4F6'
+        }
+    };
+
+    // Metric colors matching the design
+    const metricColors = {
+        temp: '#D97706',      // Orange/Amber for Temperature
+        humidity: '#059669',   // Green for Humidity
+        battery: '#7C3AED'     // Purple for Battery
+    };
+
+    const getStatusStyle = (status) => {
+        switch (status) {
+            case 'Completed':
+                return { background: '#D1FAE5', color: '#065F46' };
+            case 'In Progress':
+                return { background: '#DBEAFE', color: '#1D4ED8' };
+            case 'Pending':
+                return { background: '#FEF3C7', color: '#92400E' };
+            default:
+                return { background: '#F3F4F6', color: '#6B7280' };
+        }
+    };
 
     return (
-        <div className="space-y-6">
+        <div style={styles.container}>
             {/* Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-900">Historical Analysis</h2>
-                    <p className="text-sm text-gray-500">
-                        View and analyze historical data for{' '}
-                        <span className="text-purple-600 font-medium">{selectedDeviceId}</span>
-                    </p>
+            <div style={styles.header}>
+                <h1 style={styles.title}>Environmental Data | Device</h1>
+            </div>
+
+            {/* Chart Card */}
+            <div style={styles.chartCard}>
+                {/* Chart Header */}
+                <div style={styles.chartHeader}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                        <span style={styles.chartTitle}>Historical Trends of the Sensors</span>
+
+                        {/* Filter Pills */}
+                        <div style={styles.filterGroup}>
+                            <button
+                                style={{
+                                    ...styles.filterPill,
+                                    ...(timeRange === '6h' ? styles.filterPillActive : {})
+                                }}
+                                onClick={() => setTimeRange('6h')}
+                            >
+                                <Clock size={12} />
+                                Last 6 Hours
+                            </button>
+                            <button style={styles.filterPill}>
+                                5 Seconds
+                            </button>
+                            <button style={styles.filterPill}>
+                                {chartData.length} points
+                            </button>
+                            <button style={styles.filterPill}>
+                                <Globe size={12} />
+                                HTTP API
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Legend */}
+                    <div style={styles.legendGroup}>
+                        <div
+                            style={{
+                                ...styles.legendItem,
+                                background: activeMetrics.temp ? '#FEF3C7' : '#F9FAFB',
+                                border: `1px solid ${activeMetrics.temp ? '#F59E0B' : '#E5E7EB'}`
+                            }}
+                            onClick={() => toggleMetric('temp')}
+                        >
+                            <div style={{ ...styles.legendDot, background: metricColors.temp }} />
+                            <span style={{ color: activeMetrics.temp ? '#92400E' : '#9CA3AF' }}>Temp</span>
+                        </div>
+
+                        <div
+                            style={{
+                                ...styles.legendItem,
+                                background: activeMetrics.humidity ? '#D1FAE5' : '#F9FAFB',
+                                border: `1px solid ${activeMetrics.humidity ? '#10B981' : '#E5E7EB'}`
+                            }}
+                            onClick={() => toggleMetric('humidity')}
+                        >
+                            <div style={{ ...styles.legendDot, background: metricColors.humidity }} />
+                            <span style={{ color: activeMetrics.humidity ? '#065F46' : '#9CA3AF' }}>Humidity</span>
+                        </div>
+
+                        <div
+                            style={{
+                                ...styles.legendItem,
+                                background: activeMetrics.battery ? '#EDE9FE' : '#F9FAFB',
+                                border: `1px solid ${activeMetrics.battery ? '#8B5CF6' : '#E5E7EB'}`
+                            }}
+                            onClick={() => toggleMetric('battery')}
+                        >
+                            <div style={{ ...styles.legendDot, background: metricColors.battery }} />
+                            <span style={{ color: activeMetrics.battery ? '#5B21B6' : '#9CA3AF' }}>Battery</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* Chart Controls */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: '16px',
+                    marginBottom: '16px'
+                }}>
                     <button
-                        onClick={fetchHistoricalData}
-                        disabled={isLoading}
-                        className="btn btn-primary"
+                        style={styles.exportBtn}
+                        onClick={handleExportCSV}
                     >
-                        {isLoading ? (
-                            <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                            <RefreshCw size={16} />
-                        )}
-                        Fetch Data
+                        <Download size={14} />
+                        Export CSV
                     </button>
-                    <button className="btn btn-secondary">
-                        <Download size={16} />
-                        Export
-                    </button>
-                </div>
-            </div>
 
-            {/* Filters */}
-            <div className="card p-4">
-                <div className="flex flex-wrap items-center gap-4">
-                    {/* Metric Selector */}
-                    <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Metric</label>
-                        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
-                            {metrics.map(metric => {
-                                const Icon = metric.icon;
-                                return (
-                                    <button
-                                        key={metric.id}
-                                        onClick={() => setSelectedMetric(metric.id)}
-                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${selectedMetric === metric.id
-                                                ? 'bg-white text-purple-700 shadow-sm'
-                                                : 'text-gray-600 hover:text-gray-900'
-                                            }`}
-                                    >
-                                        <Icon size={14} />
-                                        {metric.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', color: '#6B7280' }}>Time Range</span>
+                        <select
+                            style={styles.select}
+                            value={timeRange}
+                            onChange={(e) => setTimeRange(e.target.value)}
+                        >
+                            <option value="1h">1h</option>
+                            <option value="6h">6h</option>
+                            <option value="12h">12h</option>
+                            <option value="24h">24h</option>
+                        </select>
                     </div>
 
-                    {/* Time Range */}
-                    <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Time Range</label>
-                        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
-                            {timeRanges.map(range => (
-                                <button
-                                    key={range.id}
-                                    onClick={() => setTimeRange(range.id)}
-                                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${timeRange === range.id
-                                            ? 'bg-white text-purple-700 shadow-sm'
-                                            : 'text-gray-600 hover:text-gray-900'
-                                        }`}
-                                >
-                                    {range.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Custom Date Range */}
-                    {timeRange === 'custom' && (
-                        <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Date Range</label>
-                            <DateRangePicker
-                                startDate={startDate}
-                                endDate={endDate}
-                                onStartChange={setStartDate}
-                                onEndChange={setEndDate}
-                            />
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ChartCard
-                    title="Temperature"
-                    icon={Thermometer}
-                    data={generateMockData(24, 'temp')}
-                    color="#ef4444"
-                    unit="°C"
-                />
-                <ChartCard
-                    title="Humidity"
-                    icon={Droplets}
-                    data={generateMockData(24, 'humidity')}
-                    color="#3b82f6"
-                    unit="%"
-                />
-            </div>
-
-            {/* Combined Chart */}
-            <div className="card p-4">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                        <TrendingUp size={18} className="text-purple-600" />
-                        <h4 className="font-semibold text-gray-900">Environment Overview</h4>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', color: '#6B7280' }}>Interval</span>
+                        <select
+                            style={styles.select}
+                            value={interval}
+                            onChange={(e) => setInterval(e.target.value)}
+                        >
+                            <option value="5 Seconds">5 Seconds</option>
+                            <option value="30 Seconds">30 Seconds</option>
+                            <option value="1 Minute">1 Minute</option>
+                            <option value="5 Minutes">5 Minutes</option>
+                        </select>
                     </div>
                 </div>
 
-                <div className="h-[300px]">
+                {/* Chart */}
+                <div style={styles.chartContainer}>
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                             <XAxis
                                 dataKey="time"
-                                tick={{ fontSize: 11, fill: '#6b7280' }}
+                                tick={{ fontSize: 11, fill: '#6B7280' }}
                                 tickLine={false}
+                                axisLine={{ stroke: '#E5E7EB' }}
                             />
                             <YAxis
-                                tick={{ fontSize: 11, fill: '#6b7280' }}
+                                yAxisId="left"
+                                tick={{ fontSize: 11, fill: '#6B7280' }}
                                 tickLine={false}
+                                axisLine={{ stroke: '#E5E7EB' }}
+                                domain={[0, 100]}
+                            />
+                            <YAxis
+                                yAxisId="right"
+                                orientation="right"
+                                tick={{ fontSize: 11, fill: '#6B7280' }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#E5E7EB' }}
+                                domain={[0, 2400]}
                             />
                             <Tooltip
                                 contentStyle={{
                                     backgroundColor: 'white',
-                                    border: '1px solid #e5e7eb',
-                                    borderRadius: '8px'
+                                    border: '1px solid #E5E7EB',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
                                 }}
                             />
-                            <Legend />
-                            <Line
-                                type="monotone"
-                                dataKey="value"
-                                name="Temperature"
-                                stroke="#9333ea"
-                                strokeWidth={2}
-                                dot={false}
-                            />
+
+                            {activeMetrics.temp && (
+                                <Line
+                                    yAxisId="left"
+                                    type="stepAfter"
+                                    dataKey="temp"
+                                    name="Temperature"
+                                    stroke={metricColors.temp}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    activeDot={{ r: 4 }}
+                                />
+                            )}
+
+                            {activeMetrics.humidity && (
+                                <Line
+                                    yAxisId="left"
+                                    type="stepAfter"
+                                    dataKey="humidity"
+                                    name="Humidity"
+                                    stroke={metricColors.humidity}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    activeDot={{ r: 4 }}
+                                />
+                            )}
+
+                            {activeMetrics.battery && (
+                                <Line
+                                    yAxisId="left"
+                                    type="stepAfter"
+                                    dataKey="battery"
+                                    name="Battery"
+                                    stroke={metricColors.battery}
+                                    strokeWidth={2}
+                                    dot={false}
+                                    activeDot={{ r: 4 }}
+                                />
+                            )}
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
             </div>
 
-            {/* Data Table */}
-            <div className="card">
-                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                    <h4 className="font-semibold text-gray-900">Raw Data</h4>
-                    <div className="flex items-center gap-2">
-                        <Filter size={16} className="text-gray-400" />
-                        <span className="text-sm text-gray-500">Showing latest 10 records</span>
-                    </div>
+            {/* Task History Table */}
+            <div style={styles.tableCard}>
+                <div style={styles.tableHeader}>
+                    <h2 style={styles.tableTitle}>Task History | Robots</h2>
                 </div>
-                <DataTable data={tableData} columns={tableColumns} />
+
+                <table style={styles.table}>
+                    <thead>
+                        <tr>
+                            <th style={styles.th}>Task ID</th>
+                            <th style={styles.th}>Task Name</th>
+                            <th style={styles.th}>Robot ID</th>
+                            <th style={styles.th}>Completion Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {taskHistory.map((task, index) => (
+                            <tr key={task.taskId}>
+                                <td style={styles.td}>{task.taskId}</td>
+                                <td style={styles.td}>{task.taskName}</td>
+                                <td style={styles.td}>{task.robotId}</td>
+                                <td style={styles.td}>
+                                    <span style={{
+                                        ...styles.statusBadge,
+                                        ...getStatusStyle(task.status)
+                                    }}>
+                                        {task.status}
+                                    </span>
+                                </td>
+                            </tr>
+                        ))}
+                        {/* Empty rows to match design */}
+                        {[...Array(Math.max(0, 6 - taskHistory.length))].map((_, i) => (
+                            <tr key={`empty-${i}`}>
+                                <td style={styles.emptyRow}></td>
+                                <td style={styles.emptyRow}></td>
+                                <td style={styles.emptyRow}></td>
+                                <td style={styles.emptyRow}></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

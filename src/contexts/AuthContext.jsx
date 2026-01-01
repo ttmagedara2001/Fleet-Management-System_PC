@@ -1,147 +1,194 @@
+/**
+ * Authentication Context
+ * 
+ * Provides authentication state and methods to the entire application.
+ * Uses authService for token operations and persists state to localStorage.
+ * 
+ * @module AuthContext
+ */
+
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+    autoAuthenticate,
+    clearAuth as clearAuthService,
+    getCurrentToken,
+    getCurrentRefreshToken
+} from '../services/authService';
 
 const AuthContext = createContext(null);
 
-// Enable demo mode to bypass API calls during development
-// Set to false for production use with actual API
-const DEMO_MODE = false;
-
-const AUTH_CONFIG = {
-    API_URL: 'https://api.protonestconnect.co/api/v1/user/get-token',
-    USER_EMAIL: 'ratnaabinayansn@gmail.com',
-    USER_SECRET: '6M3@pwYvBGRVJLN'
-};
-
 export function AuthProvider({ children }) {
-    const [token, setToken] = useState(null);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    // ═══════════════════════════════════════════════════════════════════════
+    // STATE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const [token, setToken] = useState(() => getCurrentToken());
+    const [refreshToken, setRefreshToken] = useState(() => getCurrentRefreshToken());
+    const [userId, setUserId] = useState(() => localStorage.getItem('userId'));
+    const [isAuthenticated, setIsAuthenticated] = useState(() => !!getCurrentToken());
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [authTimestamp, setAuthTimestamp] = useState(null);
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUTHENTICATION METHODS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets authentication state and persists to localStorage
+     */
+    const setAuth = useCallback(({ jwtToken, refreshToken: newRefreshToken, userId: newUserId }) => {
+        console.log('[Auth] 💾 Setting authentication state...');
+
+        if (jwtToken) {
+            localStorage.setItem('jwtToken', jwtToken);
+            setToken(jwtToken);
+        }
+
+        if (newRefreshToken) {
+            localStorage.setItem('refreshToken', newRefreshToken);
+            setRefreshToken(newRefreshToken);
+        }
+
+        if (newUserId) {
+            localStorage.setItem('userId', newUserId);
+            setUserId(newUserId);
+        }
+
+        setIsAuthenticated(true);
+        setError(null);
+
+        console.log('[Auth] ✅ Authentication state updated');
+    }, []);
+
+    /**
+     * Performs initial auto-login on app mount
+     */
     const performLogin = useCallback(async () => {
         console.log('[Auth] 🔐 Initiating automatic login...');
-        console.log('[Auth] 📧 User:', AUTH_CONFIG.USER_EMAIL);
-        console.log('[Auth] 🎮 Demo Mode:', DEMO_MODE ? 'ENABLED' : 'DISABLED');
-
         setIsLoading(true);
         setError(null);
 
-        // Demo mode - bypass actual API for development
-        if (DEMO_MODE) {
-            console.log('[Auth] 🎮 Using demo mode - bypassing API');
-
-            // Simulate network delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            const mockToken = 'demo-token-' + Date.now();
-            setToken(mockToken);
-            setIsAuthenticated(true);
-            setAuthTimestamp(Date.now());
-
-            console.log('[Auth] ✅ Demo authentication successful');
-            console.log('[Auth] 🎫 Mock token generated');
-            setIsLoading(false);
-            return;
-        }
-
         try {
-            console.log('[Auth] 📡 Sending authentication request to:', AUTH_CONFIG.API_URL);
+            const tokens = await autoAuthenticate();
 
-            const response = await fetch(AUTH_CONFIG.API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: AUTH_CONFIG.USER_EMAIL,
-                    secretKey: AUTH_CONFIG.USER_SECRET
-                })
+            setAuth({
+                jwtToken: tokens.jwtToken,
+                refreshToken: tokens.refreshToken
             });
 
-            console.log('[Auth] 📨 Response status:', response.status);
-
-            if (!response.ok) {
-                throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            console.log('[Auth] ✅ Authentication successful');
-            console.log('[Auth] 🎫 Token received (length):', data.token?.length || 0);
-
-            if (!data.token) {
-                throw new Error('No token received from server');
-            }
-
-            setToken(data.token);
-            setIsAuthenticated(true);
-            setAuthTimestamp(Date.now());
-
-            console.log('[Auth] 💾 Token stored securely in memory');
-            console.log('[Auth] ⏰ Auth timestamp:', new Date().toISOString());
+            console.log('[Auth] ✅ Auto-login successful');
+            console.log('[Auth] 🎫 JWT Token (length):', tokens.jwtToken?.length || 0);
+            console.log('[Auth] 🔄 Refresh Token:', !!tokens.refreshToken);
+            console.log('[Auth] ⏳ Token valid for 24 hours');
 
         } catch (err) {
-            console.error('[Auth] ❌ Authentication error:', err.message);
+            console.error('[Auth] ❌ Auto-login failed:', err.message);
             setError(err.message);
             setIsAuthenticated(false);
             setToken(null);
+            setRefreshToken(null);
         } finally {
             setIsLoading(false);
         }
+    }, [setAuth]);
+
+    /**
+     * Logs out the user and clears all auth state
+     */
+    const logout = useCallback(() => {
+        console.log('[Auth] 🚪 Logging out...');
+
+        // Clear service state
+        clearAuthService();
+
+        // Clear context state
+        setToken(null);
+        setRefreshToken(null);
+        setUserId(null);
+        setIsAuthenticated(false);
+
+        console.log('[Auth] ✅ Logout complete');
     }, []);
 
-    // Perform auto-login on mount
+    /**
+     * Returns headers for authenticated HTTP requests
+     */
+    const getAuthHeader = useCallback(() => {
+        const currentToken = token || getCurrentToken();
+        if (!currentToken) return {};
+        return { 'X-Token': currentToken };
+    }, [token]);
+
+    /**
+     * Builds WebSocket URL with token as query parameter
+     */
+    const getWebSocketUrl = useCallback((baseUrl) => {
+        const currentToken = token || getCurrentToken();
+        if (!currentToken) return null;
+        const encodedToken = encodeURIComponent(currentToken);
+        return `${baseUrl}?token=${encodedToken}`;
+    }, [token]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EFFECTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Auto-login on mount
+     */
     useEffect(() => {
         console.log('[Auth] 🚀 AuthProvider mounted - initiating auto-login');
         performLogin();
     }, [performLogin]);
 
-    // Token refresh logic (refresh every 50 minutes to be safe)
+    /**
+     * Listen for logout events from API interceptor
+     */
     useEffect(() => {
-        if (!isAuthenticated || !authTimestamp) return;
-
-        const REFRESH_INTERVAL = 50 * 60 * 1000; // 50 minutes
-
-        const checkAndRefresh = () => {
-            const elapsed = Date.now() - authTimestamp;
-            if (elapsed >= REFRESH_INTERVAL) {
-                console.log('[Auth] 🔄 Token refresh interval reached, re-authenticating...');
-                performLogin();
-            }
+        const handleLogout = () => {
+            console.log('[Auth] 📡 Received logout event from API');
+            logout();
         };
 
-        const interval = setInterval(checkAndRefresh, 60000); // Check every minute
+        window.addEventListener('auth:logout', handleLogout);
+        return () => window.removeEventListener('auth:logout', handleLogout);
+    }, [logout]);
 
-        return () => clearInterval(interval);
-    }, [isAuthenticated, authTimestamp, performLogin]);
+    /**
+     * Token refresh timer - refresh every 23 hours (token valid for 24 hours)
+     */
+    useEffect(() => {
+        if (!isAuthenticated || !token) return;
 
-    const logout = useCallback(() => {
-        console.log('[Auth] 🚪 Logging out...');
-        setToken(null);
-        setIsAuthenticated(false);
-        setAuthTimestamp(null);
-        console.log('[Auth] ✅ Logout complete');
-    }, []);
+        const REFRESH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours
 
-    const getAuthHeader = useCallback(() => {
-        if (!token) return {};
-        return { 'X-Token': token };
-    }, [token]);
+        console.log('[Auth] ⏰ Setting up token refresh timer (23 hours)');
 
-    const getWebSocketUrl = useCallback((baseUrl) => {
-        if (!token) return null;
-        // WebSocket uses query param for auth, NOT headers
-        const encodedToken = encodeURIComponent(token);
-        return `${baseUrl}?token=${encodedToken}`;
-    }, [token]);
+        const timer = setTimeout(() => {
+            console.log('[Auth] 🔄 Token refresh timer triggered');
+            performLogin();
+        }, REFRESH_INTERVAL);
+
+        return () => clearTimeout(timer);
+    }, [isAuthenticated, token, performLogin]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONTEXT VALUE
+    // ═══════════════════════════════════════════════════════════════════════
 
     const value = {
+        // State
         token,
+        refreshToken,
+        userId,
         isAuthenticated,
         isLoading,
         error,
-        logout,
+
+        // Methods
+        setAuth,
         performLogin,
+        logout,
         getAuthHeader,
         getWebSocketUrl
     };
@@ -153,6 +200,9 @@ export function AuthProvider({ children }) {
     );
 }
 
+/**
+ * Hook to access auth context
+ */
 export function useAuth() {
     const context = useContext(AuthContext);
     if (!context) {

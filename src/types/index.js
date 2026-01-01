@@ -1,205 +1,123 @@
 /**
- * TypeScript interfaces for Fabrix Dashboard
- * These provide documentation and can be used for future TypeScript migration
+ * Type definitions for Fabrix Dashboard
+ * Using JSDoc for documentation in JavaScript
+ * 
+ * This file provides documentation for data structures used throughout the app.
+ * For future TypeScript migration, these can be converted to .ts interfaces.
  */
 
 // ==================== Device Types ====================
 
 /**
  * Device environment data from /topic/stream/${deviceId}/env
+ * @typedef {Object} DeviceEnvironment
+ * @property {number|null} ambient_temp - Ambient temperature in Celsius
+ * @property {number|null} ambient_hum - Ambient humidity percentage
+ * @property {number|null} atmospheric_pressure - Pressure in hPa
+ * @property {'ACTIVE'|'INACTIVE'|'MAINTENANCE'|null} air_scrubber_status - Air scrubber state
  */
-export interface DeviceEnvironment {
-  ambient_temp: number | null;
-  ambient_hum: number | null;
-  atmospheric_pressure: number | null;
-  air_scrubber_status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | null;
-}
 
 /**
  * Device state from /topic/state/${deviceId}
+ * @typedef {Object} DeviceState
+ * @property {'NOMINAL'|'DEGRADED'|'CRITICAL'|null} gateway_health - Gateway health status
+ * @property {string|null} active_alert - Current active alert message
+ * @property {'ON'|'OFF'|null} ac_power - AC power state
+ * @property {number|null} wifi_rssi - WiFi signal strength in dBm
+ * @property {string[]} [robots] - Array of discovered robot IDs
  */
-export interface DeviceState {
-  gateway_health: 'NOMINAL' | 'DEGRADED' | 'CRITICAL' | null;
-  active_alert: string | null;
-  ac_power: 'ON' | 'OFF' | null;
-  wifi_rssi: number | null;
-  robots?: string[]; // Robot discovery
-}
 
 /**
- * Complete device data
+ * Complete device data structure
+ * @typedef {Object} DeviceData
+ * @property {DeviceEnvironment} environment - Environmental sensor data
+ * @property {DeviceState} state - Device operational state
+ * @property {Object|null} taskSummary - Task summary data
+ * @property {number|null} lastUpdate - Timestamp of last update
  */
-export interface DeviceData {
-  environment: DeviceEnvironment;
-  state: DeviceState;
-  taskSummary: any | null;
-  lastUpdate: number | null;
-}
 
 // ==================== Robot Types ====================
 
 /**
  * Robot location from /topic/stream/${deviceId}/robots/${robotId}/location
+ * @typedef {Object} RobotLocation
+ * @property {number} lat - Latitude coordinate
+ * @property {number} lng - Longitude coordinate
+ * @property {number} z - Altitude/floor level
  */
-export interface RobotLocation {
-  lat: number;
-  lng: number;
-  z: number;
-}
 
 /**
  * Robot environment from /topic/stream/${deviceId}/robots/${robotId}/env
+ * @typedef {Object} RobotEnvironment
+ * @property {number|null} temp - Robot internal temperature
+ * @property {number|null} humidity - Local humidity reading
  */
-export interface RobotEnvironment {
-  temp: number | null;
-  humidity: number | null;
-}
 
 /**
  * Robot status from /topic/stream/${deviceId}/robots/${robotId}/status
+ * @typedef {Object} RobotStatus
+ * @property {number|null} battery - Battery percentage
+ * @property {string|null} load - Current load description
+ * @property {'MOVING'|'ACTIVE'|'IDLE'|'CHARGING'|'ERROR'|'STOPPED'|'UNKNOWN'} state - Robot state
+ * @property {boolean} [obstacle_detected] - Whether obstacle is detected
  */
-export interface RobotStatus {
-  battery: number | null;
-  load: string | null;
-  state: 'MOVING' | 'ACTIVE' | 'IDLE' | 'CHARGING' | 'ERROR' | 'STOPPED' | 'UNKNOWN';
-  obstacle_detected?: boolean;
-}
 
 /**
  * Robot task from /topic/stream/${deviceId}/robots/${robotId}/tasks
+ * @typedef {Object} RobotTask
+ * @property {'MOVE_FOUP'|'PICKUP'|'DELIVERY'|'RETURN_HOME'|'CHARGE'} type - Task type
+ * @property {string} source - Source location
+ * @property {string} destination - Destination location
+ * @property {'LOW'|'NORMAL'|'HIGH'|'URGENT'} priority - Task priority
+ * @property {number} [progress] - Task progress percentage
+ * @property {string} [eta] - Estimated time of arrival
  */
-export interface RobotTask {
-  type: 'MOVE_FOUP' | 'PICKUP' | 'DELIVERY' | 'RETURN_HOME' | 'CHARGE';
-  source: string;
-  destination: string;
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  progress?: number;
-  eta?: string;
-}
 
 /**
- * Complete robot data
+ * Complete robot data structure
+ * @typedef {Object} Robot
+ * @property {string} id - Robot identifier
+ * @property {RobotLocation} location - Current location
+ * @property {number} heading - Heading angle in degrees
+ * @property {RobotEnvironment} environment - Environmental readings
+ * @property {RobotStatus} status - Operational status
+ * @property {RobotTask|null} task - Current task
+ * @property {number|null} lastUpdate - Timestamp of last update
  */
-export interface Robot {
-  id: string;
-  location: RobotLocation;
-  heading: number;
-  environment: RobotEnvironment;
-  status: RobotStatus;
-  task: RobotTask | null;
-  lastUpdate: number | null;
-}
 
 // ==================== Alert Types ====================
 
-export interface Alert {
-  id: string;
-  type: 'warning' | 'critical';
-  deviceId: string;
-  robotId?: string;
-  message: string;
-  timestamp: number;
-  read?: boolean;
-}
+/**
+ * Alert structure
+ * @typedef {Object} Alert
+ * @property {string} id - Unique alert identifier
+ * @property {'warning'|'critical'} type - Alert severity
+ * @property {string} deviceId - Associated device ID
+ * @property {string} [robotId] - Associated robot ID (if applicable)
+ * @property {string} message - Alert message
+ * @property {number} timestamp - Alert timestamp
+ * @property {boolean} [read] - Whether alert has been read
+ */
 
 // ==================== API Types ====================
 
 /**
  * Stream data request payload
+ * @typedef {Object} StreamDataRequest
+ * @property {string} deviceId - Device to query
+ * @property {string} startTime - Start time (ISO-8601)
+ * @property {string} endTime - End time (ISO-8601)
+ * @property {string} pagination - Page number
+ * @property {string} pageSize - Items per page
  */
-export interface StreamDataRequest {
-  deviceId: string;
-  startTime: string; // ISO-8601
-  endTime: string;   // ISO-8601
-  pagination: string;
-  pageSize: string;
-}
 
 /**
  * State update request payload
+ * @typedef {Object} StateUpdateRequest
+ * @property {string} deviceId - Target device
+ * @property {string} topic - State topic
+ * @property {Object} payload - Update payload
  */
-export interface StateUpdateRequest {
-  deviceId: string;
-  topic: string;
-  payload: Record<string, any>;
-}
-
-// ==================== Context Types ====================
-
-export interface AuthContextValue {
-  token: string | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  error: string | null;
-  logout: () => void;
-  performLogin: () => Promise<void>;
-  getAuthHeader: () => Record<string, string>;
-  getWebSocketUrl: (baseUrl: string) => string | null;
-}
-
-export interface StompContextValue {
-  isConnected: boolean;
-  isConnecting: boolean;
-  connectionError: string | null;
-  lastMessageTime: number | null;
-  connect: () => void;
-  disconnect: () => void;
-  subscribe: (topic: string, callback: (payload: any) => void, subscriptionId?: string) => any;
-  unsubscribe: (topic: string) => void;
-  publish: (destination: string, body: any) => boolean;
-  activeSubscriptions: number;
-}
-
-export interface DeviceContextValue {
-  devices: Array<{ id: string; name: string; zone: string }>;
-  selectedDeviceId: string;
-  setSelectedDeviceId: (id: string) => void;
-  currentDevice: { id: string; name: string; zone: string } | undefined;
-  currentDeviceData: DeviceData;
-  currentRobots: Record<string, Robot>;
-  deviceData: Record<string, DeviceData>;
-  robots: Record<string, Record<string, Robot>>;
-  alerts: Alert[];
-  addAlert: (alert: Omit<Alert, 'id'>) => void;
-  clearAlert: (alertId: string) => void;
-  clearAllAlerts: () => void;
-  registerRobot: (deviceId: string, robotId: string) => void;
-}
-
-// ==================== Component Props ====================
-
-export interface HeaderProps {
-  onMenuToggle: () => void;
-}
-
-export interface SidebarProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export interface RobotCardProps {
-  robot: Robot;
-}
-
-export interface MetricCardProps {
-  icon: React.ComponentType<any>;
-  label: string;
-  value: string | number | null;
-  unit?: string;
-  status?: 'normal' | 'warning' | 'critical';
-  trend?: number;
-}
-
-export interface ChartCardProps {
-  title: string;
-  icon: React.ComponentType<any>;
-  data: Array<{ time: string; value: number }>;
-  dataKey?: string;
-  color?: string;
-  unit?: string;
-}
 
 // ==================== STOMP Topic Structure ====================
 
@@ -228,6 +146,49 @@ export const TOPIC_PATTERNS = {
   ROBOT_TASKS: (deviceId, robotId) => `/topic/stream/${deviceId}/robots/${robotId}/tasks`,
 };
 
+// ==================== Status Constants ====================
+
+export const DEVICE_STATUS = {
+  NOMINAL: 'NOMINAL',
+  DEGRADED: 'DEGRADED',
+  CRITICAL: 'CRITICAL',
+};
+
+export const ROBOT_STATE = {
+  MOVING: 'MOVING',
+  ACTIVE: 'ACTIVE',
+  IDLE: 'IDLE',
+  CHARGING: 'CHARGING',
+  ERROR: 'ERROR',
+  STOPPED: 'STOPPED',
+  UNKNOWN: 'UNKNOWN',
+};
+
+export const TASK_TYPE = {
+  MOVE_FOUP: 'MOVE_FOUP',
+  PICKUP: 'PICKUP',
+  DELIVERY: 'DELIVERY',
+  RETURN_HOME: 'RETURN_HOME',
+  CHARGE: 'CHARGE',
+};
+
+export const PRIORITY = {
+  LOW: 'LOW',
+  NORMAL: 'NORMAL',
+  HIGH: 'HIGH',
+  URGENT: 'URGENT',
+};
+
+export const ALERT_TYPE = {
+  WARNING: 'warning',
+  CRITICAL: 'critical',
+};
+
 export default {
-  TOPIC_PATTERNS
+  TOPIC_PATTERNS,
+  DEVICE_STATUS,
+  ROBOT_STATE,
+  TASK_TYPE,
+  PRIORITY,
+  ALERT_TYPE,
 };
