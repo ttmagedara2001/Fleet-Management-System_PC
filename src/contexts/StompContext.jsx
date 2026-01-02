@@ -1,240 +1,67 @@
 /**
- * STOMP WebSocket Context
+ * Simple STOMP/WebSocket Context
  * 
- * React Context provider that wraps the WebSocket client service
- * and provides connection state and methods to components.
- * 
- * @module StompContext
+ * Connects WebSocket after authentication, provides subscription methods.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { webSocketClient } from '../services/webSocketClient';
 
 const StompContext = createContext(null);
 
-// ═══════════════════════════════════════════════════════════════════════════
-// STOMP PROVIDER
-// ═══════════════════════════════════════════════════════════════════════════
-
 export function StompProvider({ children }) {
     const { token, isAuthenticated } = useAuth();
-
-    // ─── State ───
     const [isConnected, setIsConnected] = useState(false);
-    const [isConnecting, setIsConnecting] = useState(false);
-    const [connectionError, setConnectionError] = useState(null);
 
-    // ─── Refs ───
-    const subscriptionsRef = useRef(new Map());
-    const hasInitializedRef = useRef(false);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // CONNECTION MANAGEMENT
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Establishes WebSocket connection
-     */
-    const connect = useCallback(async () => {
-        if (!token || !isAuthenticated) {
-            console.log('[Stomp Context] Cannot connect - not authenticated');
-            return;
-        }
-
-        if (isConnecting || webSocketClient.connected) {
-            console.log('[Stomp Context] Connection already in progress or established');
-            return;
-        }
-
-        console.log('[Stomp Context] Initiating connection...');
-        setIsConnecting(true);
-        setConnectionError(null);
-
-        try {
-            await webSocketClient.connect(token);
-            console.log('[Stomp Context] Connection initiated successfully');
-        } catch (error) {
-            console.error('[Stomp Context] Connection failed:', error.message);
-            setConnectionError(error.message);
-            setIsConnecting(false);
-        }
-    }, [token, isAuthenticated, isConnecting]);
-
-    /**
-     * Disconnects WebSocket connection
-     */
-    const disconnect = useCallback(() => {
-        console.log('[Stomp Context] Disconnecting...');
-
-        // Clear all subscriptions
-        subscriptionsRef.current.clear();
-
-        // Disconnect client
-        webSocketClient.disconnect();
-
-        setIsConnected(false);
-        setIsConnecting(false);
-
-        console.log('[Stomp Context] Disconnected');
-    }, []);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // SUBSCRIPTION MANAGEMENT
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Subscribes to a device's topics
-     * @param {string} deviceId - Device identifier
-     * @param {Function} callback - Data callback
-     */
-    const subscribeToDevice = useCallback((deviceId, callback) => {
-        if (!deviceId) {
-            console.warn('[Stomp Context] subscribeToDevice: No deviceId provided');
-            return;
-        }
-
-        console.log('[Stomp Context] Subscribing to device:', deviceId);
-
-        webSocketClient.subscribeToDevice(deviceId, callback);
-        subscriptionsRef.current.set(deviceId, callback);
-    }, []);
-
-    /**
-     * Unsubscribes from a device
-     */
-    const unsubscribeFromDevice = useCallback((deviceId) => {
-        if (!deviceId) return;
-
-        console.log('[Stomp Context] Unsubscribing from device:', deviceId);
-        subscriptionsRef.current.delete(deviceId);
-    }, []);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // COMMAND METHODS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Sends a command to a device
-     */
-    const sendCommand = useCallback((deviceId, commandType, payload) => {
-        if (!isConnected) {
-            console.warn('[Stomp Context] Cannot send command - not connected');
-            return false;
-        }
-
-        return webSocketClient.sendCommand(deviceId, commandType, payload);
-    }, [isConnected]);
-
-    /**
-     * Emergency stop
-     */
-    const emergencyStop = useCallback((deviceId) => {
-        console.log('[Stomp Context] 🚨 EMERGENCY STOP for:', deviceId);
-        return webSocketClient.emergencyStop(deviceId);
-    }, []);
-
-    /**
-     * Control AC
-     */
-    const controlAC = useCallback((deviceId, state) => {
-        return webSocketClient.controlAC(deviceId, state);
-    }, []);
-
-    /**
-     * Control air purifier
-     */
-    const controlAirPurifier = useCallback((deviceId, state) => {
-        return webSocketClient.controlAirPurifier(deviceId, state);
-    }, []);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // LIFECYCLE EFFECTS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Setup connection event listeners
-     */
+    // Connect WebSocket when authenticated
     useEffect(() => {
-        const handleConnect = () => {
-            console.log('[Stomp Context] ✅ Connected event received');
-            setIsConnected(true);
-            setIsConnecting(false);
-            setConnectionError(null);
-        };
+        if (isAuthenticated && token) {
+            console.log('🔗 Auth detected - Connecting WebSocket...');
 
-        const handleDisconnect = () => {
-            console.log('[Stomp Context] ❌ Disconnected event received');
-            setIsConnected(false);
-        };
-
-        webSocketClient.onConnect(handleConnect);
-        webSocketClient.onDisconnect(handleDisconnect);
+            webSocketClient.connect(token)
+                .then(() => {
+                    // Wait a moment for connection to establish
+                    setTimeout(() => {
+                        setIsConnected(webSocketClient.connected);
+                    }, 1000);
+                })
+                .catch(err => {
+                    console.error('❌ WebSocket connection failed:', err.message);
+                });
+        }
 
         return () => {
-            webSocketClient.offConnect(handleConnect);
-            webSocketClient.offDisconnect(handleDisconnect);
+            if (webSocketClient.connected) {
+                webSocketClient.disconnect();
+            }
         };
+    }, [isAuthenticated, token]);
+
+    // Update connection status periodically
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setIsConnected(webSocketClient.connected);
+        }, 2000);
+
+        return () => clearInterval(interval);
     }, []);
-
-    /**
-     * Auto-connect when authenticated
-     */
-    useEffect(() => {
-        if (isAuthenticated && token && !hasInitializedRef.current) {
-            console.log('[Stomp Context] Auth detected, auto-connecting...');
-            hasInitializedRef.current = true;
-            connect();
-        }
-    }, [isAuthenticated, token, connect]);
-
-    /**
-     * Disconnect on auth loss
-     */
-    useEffect(() => {
-        if (!isAuthenticated && hasInitializedRef.current) {
-            console.log('[Stomp Context] Auth lost, disconnecting...');
-            disconnect();
-            hasInitializedRef.current = false;
-        }
-    }, [isAuthenticated, disconnect]);
-
-    /**
-     * Cleanup on unmount
-     */
-    useEffect(() => {
-        return () => {
-            console.log('[Stomp Context] Provider unmounting, cleaning up...');
-            disconnect();
-        };
-    }, [disconnect]);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // CONTEXT VALUE
-    // ─────────────────────────────────────────────────────────────────────────
 
     const value = {
-        // State
         isConnected,
-        isConnecting,
-        connectionError,
-
-        // Connection methods
-        connect,
-        disconnect,
-
-        // Subscription methods
-        subscribeToDevice,
-        unsubscribeFromDevice,
-
-        // Command methods
-        sendCommand,
-        emergencyStop,
-        controlAC,
-        controlAirPurifier,
-
-        // Utility
-        getConnectionInfo: () => webSocketClient.getConnectionInfo()
+        subscribeToDevice: (deviceId, callback) => {
+            webSocketClient.subscribeToDevice(deviceId, callback);
+        },
+        unsubscribeFromDevice: (deviceId) => {
+            webSocketClient.unsubscribeFromDevice(deviceId);
+        },
+        sendCommand: (deviceId, commandType, payload) => {
+            return webSocketClient.sendCommand(deviceId, commandType, payload);
+        },
+        disconnect: () => {
+            webSocketClient.disconnect();
+            setIsConnected(false);
+        }
     };
 
     return (
@@ -244,17 +71,10 @@ export function StompProvider({ children }) {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// HOOK
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Hook to access STOMP context
- */
 export function useStomp() {
     const context = useContext(StompContext);
     if (!context) {
-        throw new Error('useStomp must be used within a StompProvider');
+        throw new Error('useStomp must be used within StompProvider');
     }
     return context;
 }

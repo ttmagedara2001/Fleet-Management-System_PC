@@ -1,196 +1,61 @@
 /**
- * Authentication Context
+ * Simple Authentication Context
  * 
- * Provides authentication state and methods to the entire application.
- * Uses authService for token operations and persists state to localStorage.
- * 
- * @module AuthContext
+ * Auto-login on app mount, provides token to children.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-    autoAuthenticate,
-    clearAuth as clearAuthService,
-    getCurrentToken,
-    getCurrentRefreshToken
-} from '../services/authService';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { login, getToken, clearTokens } from '../services/authService';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-    // ═══════════════════════════════════════════════════════════════════════
-    // STATE
-    // ═══════════════════════════════════════════════════════════════════════
-
-    const [token, setToken] = useState(() => getCurrentToken());
-    const [refreshToken, setRefreshToken] = useState(() => getCurrentRefreshToken());
-    const [userId, setUserId] = useState(() => localStorage.getItem('userId'));
-    const [isAuthenticated, setIsAuthenticated] = useState(() => !!getCurrentToken());
+    const [token, setToken] = useState(() => getToken());
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // AUTHENTICATION METHODS
-    // ═══════════════════════════════════════════════════════════════════════
+    // Auto-login on mount
+    useEffect(() => {
+        async function autoLogin() {
+            console.log('🚀 APP STARTED - Initiating auto-login...');
 
-    /**
-     * Sets authentication state and persists to localStorage
-     */
-    const setAuth = useCallback(({ jwtToken, refreshToken: newRefreshToken, userId: newUserId }) => {
-        console.log('[Auth] 💾 Setting authentication state...');
+            // Check for existing token
+            const existingToken = getToken();
+            if (existingToken) {
+                console.log('✅ Using existing token from storage');
+                setToken(existingToken);
+                setIsLoading(false);
+                return;
+            }
 
-        if (jwtToken) {
-            localStorage.setItem('jwtToken', jwtToken);
-            setToken(jwtToken);
+            // Call /get-token API
+            try {
+                const result = await login();
+                setToken(result.jwtToken);
+                setError(null);
+            } catch (err) {
+                console.error('❌ Auto-login failed:', err.message);
+                setError(err.message);
+            } finally {
+                setIsLoading(false);
+            }
         }
 
-        if (newRefreshToken) {
-            localStorage.setItem('refreshToken', newRefreshToken);
-            setRefreshToken(newRefreshToken);
-        }
-
-        if (newUserId) {
-            localStorage.setItem('userId', newUserId);
-            setUserId(newUserId);
-        }
-
-        setIsAuthenticated(true);
-        setError(null);
-
-        console.log('[Auth] ✅ Authentication state updated');
+        autoLogin();
     }, []);
 
-    /**
-     * Performs initial auto-login on app mount
-     */
-    const performLogin = useCallback(async () => {
-        console.log('[Auth] 🔐 Initiating automatic login...');
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const tokens = await autoAuthenticate();
-
-            setAuth({
-                jwtToken: tokens.jwtToken,
-                refreshToken: tokens.refreshToken
-            });
-
-            console.log('[Auth] ✅ Auto-login successful');
-            console.log('[Auth] 🎫 JWT Token (length):', tokens.jwtToken?.length || 0);
-            console.log('[Auth] 🔄 Refresh Token:', !!tokens.refreshToken);
-            console.log('[Auth] ⏳ Token valid for 24 hours');
-
-        } catch (err) {
-            console.error('[Auth] ❌ Auto-login failed:', err.message);
-            setError(err.message);
-            setIsAuthenticated(false);
-            setToken(null);
-            setRefreshToken(null);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [setAuth]);
-
-    /**
-     * Logs out the user and clears all auth state
-     */
-    const logout = useCallback(() => {
-        console.log('[Auth] 🚪 Logging out...');
-
-        // Clear service state
-        clearAuthService();
-
-        // Clear context state
+    const logout = () => {
+        clearTokens();
         setToken(null);
-        setRefreshToken(null);
-        setUserId(null);
-        setIsAuthenticated(false);
-
-        console.log('[Auth] ✅ Logout complete');
-    }, []);
-
-    /**
-     * Returns headers for authenticated HTTP requests
-     */
-    const getAuthHeader = useCallback(() => {
-        const currentToken = token || getCurrentToken();
-        if (!currentToken) return {};
-        return { 'X-Token': currentToken };
-    }, [token]);
-
-    /**
-     * Builds WebSocket URL with token as query parameter
-     */
-    const getWebSocketUrl = useCallback((baseUrl) => {
-        const currentToken = token || getCurrentToken();
-        if (!currentToken) return null;
-        const encodedToken = encodeURIComponent(currentToken);
-        return `${baseUrl}?token=${encodedToken}`;
-    }, [token]);
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // EFFECTS
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Auto-login on mount
-     */
-    useEffect(() => {
-        console.log('[Auth] 🚀 AuthProvider mounted - initiating auto-login');
-        performLogin();
-    }, [performLogin]);
-
-    /**
-     * Listen for logout events from API interceptor
-     */
-    useEffect(() => {
-        const handleLogout = () => {
-            console.log('[Auth] 📡 Received logout event from API');
-            logout();
-        };
-
-        window.addEventListener('auth:logout', handleLogout);
-        return () => window.removeEventListener('auth:logout', handleLogout);
-    }, [logout]);
-
-    /**
-     * Token refresh timer - refresh every 23 hours (token valid for 24 hours)
-     */
-    useEffect(() => {
-        if (!isAuthenticated || !token) return;
-
-        const REFRESH_INTERVAL = 23 * 60 * 60 * 1000; // 23 hours
-
-        console.log('[Auth] ⏰ Setting up token refresh timer (23 hours)');
-
-        const timer = setTimeout(() => {
-            console.log('[Auth] 🔄 Token refresh timer triggered');
-            performLogin();
-        }, REFRESH_INTERVAL);
-
-        return () => clearTimeout(timer);
-    }, [isAuthenticated, token, performLogin]);
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CONTEXT VALUE
-    // ═══════════════════════════════════════════════════════════════════════
+        console.log('👋 Logged out');
+    };
 
     const value = {
-        // State
         token,
-        refreshToken,
-        userId,
-        isAuthenticated,
+        isAuthenticated: !!token,
         isLoading,
         error,
-
-        // Methods
-        setAuth,
-        performLogin,
-        logout,
-        getAuthHeader,
-        getWebSocketUrl
+        logout
     };
 
     return (
@@ -200,13 +65,10 @@ export function AuthProvider({ children }) {
     );
 }
 
-/**
- * Hook to access auth context
- */
 export function useAuth() {
     const context = useContext(AuthContext);
     if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider');
+        throw new Error('useAuth must be used within AuthProvider');
     }
     return context;
 }
