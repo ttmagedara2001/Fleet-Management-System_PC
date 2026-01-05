@@ -10,7 +10,7 @@
 import { Client } from '@stomp/stompjs';
 import { getToken } from './authService';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'wss://api.protonestconnect.co/ws';
+const WS_URL = import.meta.env.VITE_WS_URL;
 
 // Topics to subscribe
 const TOPICS = {

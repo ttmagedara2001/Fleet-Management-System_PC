@@ -5,12 +5,12 @@
  * Calls /get-token API and returns JWT token.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.protonestconnect.co/api/v1/user';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Credentials from environment variables for auto-login
 const CREDENTIALS = {
-    email: import.meta.env.VITE_AUTH_EMAIL || '',
-    password: import.meta.env.VITE_AUTH_PASSWORD || ''
+    email: import.meta.env.VITE_AUTH_EMAIL,
+    password: import.meta.env.VITE_AUTH_PASSWORD
 };
 
 /**
