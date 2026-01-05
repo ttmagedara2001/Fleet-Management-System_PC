@@ -498,18 +498,23 @@ export function DeviceProvider({ children }) {
     }, [isConnected, robots, subscribe, handleRobotLocationUpdate, handleRobotEnvUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
 
     // For demo purposes, register some mock robots
-    // TODO: Remove this in production - robots should be discovered via WebSocket
+    // TODO: Remove this in production - robots should be discovered via MQTT/WebSocket
     useEffect(() => {
-        // Register demo robots after a delay
+        // Only register demo robots AFTER WebSocket connection is established
+        if (!isConnected) {
+            return;
+        }
+
+        // Small delay to ensure subscriptions are set up first
         const timeout = setTimeout(() => {
             console.log('[Fabrix Device] 🎮 Registering demo robots for development...');
             registerRobot('device9988', 'robot-001');
             registerRobot('device9988', 'robot-002');
             console.log('[Fabrix Device] ✅ Demo robots registered');
-        }, 2000);
+        }, 500);
 
         return () => clearTimeout(timeout);
-    }, [registerRobot]);
+    }, [isConnected, registerRobot]);
 
     const value = {
         devices: DEVICES,
