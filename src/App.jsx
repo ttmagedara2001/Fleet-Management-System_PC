@@ -200,8 +200,28 @@ function ErrorScreen({ error, onRetry }) {
 function AppContent() {
   const { isLoading: authLoading, isAuthenticated, error: authError, performLogin } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Persist active tab in localStorage
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fabrix_activeTab');
+      if (saved && ['dashboard', 'analysis', 'settings'].includes(saved)) {
+        return saved;
+      }
+    } catch (e) {
+      console.error('[App] Failed to load activeTab:', e);
+    }
+    return 'dashboard';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Save active tab to localStorage when it changes
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('fabrix_activeTab', activeTab);
+    } catch (e) {
+      console.error('[App] Failed to save activeTab:', e);
+    }
+  }, [activeTab]);
 
   if (authLoading) {
     return <LoadingScreen message="Authenticating..." />;

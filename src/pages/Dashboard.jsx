@@ -7,10 +7,12 @@ import {
     AlertTriangle,
     CheckCircle,
     Battery,
-    MapPin
+    MapPin,
+    Loader2
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { useStomp } from '../contexts/StompContext';
+import { toggleAC, setAirPurifier } from '../services/api';
 
 // Fab Map Component
 function FabMap() {
@@ -86,31 +88,35 @@ function FabMap() {
                     >
                         <h4>ROBOT {selectedRobot.id.replace('robot-', 'R-')}</h4>
                         <div className="robot-tooltip-row">
-                            <span className="label">ZONE:</span>
-                            <span className="value">Lithography (Device 00)</span>
-                        </div>
-                        <div className="robot-tooltip-row">
                             <span className="label">STATUS:</span>
                             <span className="value" style={{ color: getStatusColor(selectedRobot) }}>
-                                {selectedRobot.status?.state || 'Online'}
+                                {selectedRobot.status?.state || 'Unknown'}
                             </span>
                         </div>
                         <div className="robot-tooltip-row">
-                            <span className="label">CURRENT TASK:</span>
-                            <span className="value">{selectedRobot.task?.type || 'RETICLE_SWAP'}</span>
+                            <span className="label">BATTERY:</span>
+                            <span className="value">{selectedRobot.status?.battery != null ? `${selectedRobot.status.battery}%` : '--'}</span>
                         </div>
                         <div className="robot-tooltip-row">
-                            <span className="label">TASK PROGRESS:</span>
-                            <span className="value">{selectedRobot.task?.progress || 82}%</span>
+                            <span className="label">CURRENT TASK:</span>
+                            <span className="value">{selectedRobot.task?.type || 'None'}</span>
                         </div>
+                        {selectedRobot.task?.progress != null && (
+                            <div className="robot-tooltip-row">
+                                <span className="label">TASK PROGRESS:</span>
+                                <span className="value">{selectedRobot.task.progress}%</span>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Task Progress Overlay */}
-                <div className="task-progress-overlay">
-                    <div className="task-progress-label">Task Progress:</div>
-                    <div className="task-progress-value">62 %</div>
-                </div>
+                {/* Task Progress Overlay - Shows only when there are active tasks */}
+                {robots.length > 0 && robots.some(r => r.task) && (
+                    <div className="task-progress-overlay">
+                        <div className="task-progress-label">Active Tasks:</div>
+                        <div className="task-progress-value">{robots.filter(r => r.task).length}</div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -133,15 +139,15 @@ function StatusCard() {
             </div>
             <div className="status-row">
                 <span className="label">Env Temperature:</span>
-                <span className="value">{env.ambient_temp?.toFixed(0) || 24} C</span>
+                <span className="value">{env.ambient_temp != null ? `${env.ambient_temp.toFixed(0)} C` : '-- C'}</span>
             </div>
             <div className="status-row">
                 <span className="label">Humidity:</span>
-                <span className="value">{env.ambient_hum?.toFixed(0) || 40}%</span>
+                <span className="value">{env.ambient_hum != null ? `${env.ambient_hum.toFixed(0)}%` : '--%'}</span>
             </div>
             <div className="status-row">
                 <span className="label">Atmp. Pressure:</span>
-                <span className="value">{env.atmospheric_pressure || 28} bar</span>
+                <span className="value">{env.atmospheric_pressure != null ? `${env.atmospheric_pressure} hPa` : '-- hPa'}</span>
             </div>
         </div>
     );
@@ -181,29 +187,84 @@ function AlertsCard() {
 
 // Control Toggles Component
 function ControlToggles() {
-    const [acEnabled, setAcEnabled] = useState(true);
-    const [airPurifierEnabled, setAirPurifierEnabled] = useState(true);
+    const { currentDeviceData, selectedDeviceId } = useDevice();
+    const state = currentDeviceData?.state || {};
+    const [isLoading, setIsLoading] = useState({ ac: false, airPurifier: false });
+
+    // Use WebSocket state or default to false
+    const acEnabled = state.ac_power === 'ON' || state.ac_power === 'ACTIVE';
+    const airPurifierEnabled = state.air_purifier === 'ON' || state.air_purifier === 'ACTIVE';
+
+    // Handle AC toggle
+    const handleACToggle = async () => {
+        setIsLoading(prev => ({ ...prev, ac: true }));
+        try {
+            const newState = !acEnabled;
+            console.log(`[Dashboard] 🔄 Toggling AC to ${newState ? 'ON' : 'OFF'} for device: ${selectedDeviceId}`);
+            
+            const result = await toggleAC(selectedDeviceId, newState);
+            console.log('[Dashboard] ✅ AC toggle result:', result);
+            
+            // State will update via WebSocket
+        } catch (error) {
+            console.error('[Dashboard] ❌ Failed to toggle AC:', error);
+            alert('Failed to toggle AC. Please try again.');
+        } finally {
+            setIsLoading(prev => ({ ...prev, ac: false }));
+        }
+    };
+
+    // Handle Air Purifier toggle
+    const handleAirPurifierToggle = async () => {
+        setIsLoading(prev => ({ ...prev, airPurifier: true }));
+        try {
+            const newMode = airPurifierEnabled ? 'INACTIVE' : 'ACTIVE';
+            console.log(`[Dashboard] 🔄 Setting Air Purifier to ${newMode} for device: ${selectedDeviceId}`);
+            
+            const result = await setAirPurifier(selectedDeviceId, newMode);
+            console.log('[Dashboard] ✅ Air purifier result:', result);
+            
+            // State will update via WebSocket
+        } catch (error) {
+            console.error('[Dashboard] ❌ Failed to toggle Air Purifier:', error);
+            alert('Failed to toggle Air Purifier. Please try again.');
+        } finally {
+            setIsLoading(prev => ({ ...prev, airPurifier: false }));
+        }
+    };
 
     return (
         <div className="controls-section">
             <div className="control-card">
                 <div className="control-label">AIR CONDITION (AC):</div>
                 <div className="control-toggle">
-                    <span className="toggle-label manual">MANUAL</span>
-                    <div
-                        className={`toggle-switch ${acEnabled ? 'active' : ''}`}
-                        onClick={() => setAcEnabled(!acEnabled)}
-                    />
+                    <span className="toggle-label manual">{state.ac_power || 'UNKNOWN'}</span>
+                    {isLoading.ac ? (
+                        <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
+                    ) : (
+                        <div
+                            className={`toggle-switch ${acEnabled ? 'active' : ''}`}
+                            onClick={handleACToggle}
+                            style={{ cursor: 'pointer' }}
+                            title="Click to toggle AC"
+                        />
+                    )}
                 </div>
             </div>
             <div className="control-card">
-                <div className="control-label">AIR PURIFIRE:</div>
+                <div className="control-label">AIR PURIFIER:</div>
                 <div className="control-toggle">
-                    <span className="toggle-label manual">MANUAL</span>
-                    <div
-                        className={`toggle-switch ${airPurifierEnabled ? 'active' : ''}`}
-                        onClick={() => setAirPurifierEnabled(!airPurifierEnabled)}
-                    />
+                    <span className="toggle-label manual">{state.air_purifier || 'UNKNOWN'}</span>
+                    {isLoading.airPurifier ? (
+                        <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
+                    ) : (
+                        <div
+                            className={`toggle-switch ${airPurifierEnabled ? 'active' : ''}`}
+                            onClick={handleAirPurifierToggle}
+                            style={{ cursor: 'pointer' }}
+                            title="Click to toggle Air Purifier"
+                        />
+                    )}
                 </div>
             </div>
         </div>
@@ -215,16 +276,6 @@ function RobotDetails() {
     const { currentRobots } = useDevice();
     const robots = Object.values(currentRobots || {});
 
-    // Add some demo robots if none exist
-    const displayRobots = robots.length > 0 ? robots : [
-        { id: 'robot-01', status: { battery: 76, state: 'ACTIVE' }, environment: { temp: 24 }, task: { type: 'hqdiqdsih0ho' } },
-        { id: 'robot-02', status: { battery: 76, state: 'ACTIVE' }, environment: { temp: 24 }, task: { type: 'hqdiqdsih0ho' } },
-        { id: 'robot-03', status: { battery: 76, state: 'ACTIVE' }, environment: { temp: 24 }, task: { type: 'hqdiqdsih0ho' } },
-        { id: 'robot-04', status: { battery: 22, state: 'WARNING' }, environment: { temp: 24 }, task: { type: 'hqdiqdsih0ho' } },
-        { id: 'robot-05', status: { battery: 18, state: 'WARNING' }, environment: { temp: 24 }, task: { type: 'hqdiqdsih0ho' } },
-        { id: 'robot-06', status: { battery: null, state: 'OFFLINE' }, environment: { temp: null }, task: null },
-    ];
-
     const getStatusClass = (robot) => {
         const battery = robot.status?.battery;
         if (!battery || robot.status?.state === 'OFFLINE') return 'offline';
@@ -232,15 +283,30 @@ function RobotDetails() {
         return 'online';
     };
 
+    if (robots.length === 0) {
+        return (
+            <div className="robot-details-section">
+                <div className="robot-details-header">
+                    <h2 className="robot-details-title">Robot details</h2>
+                </div>
+                <div className="no-robots-message" style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+                    <Bot size={48} style={{ margin: '0 auto 16px', opacity: 0.5 }} />
+                    <p>No robots discovered yet</p>
+                    <p style={{ fontSize: '12px', marginTop: '8px' }}>Waiting for robot data from WebSocket...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="robot-details-section">
             <div className="robot-details-header">
                 <h2 className="robot-details-title">Robot details</h2>
-                <a href="#" className="robot-details-link">Read more.</a>
+                <span className="robot-details-count">{robots.length} robot(s) connected</span>
             </div>
 
             <div className="robot-cards-grid">
-                {displayRobots.map(robot => (
+                {robots.map(robot => (
                     <div key={robot.id} className="robot-card">
                         <div className={`robot-card-status ${getStatusClass(robot)}`} />
                         <div className="robot-card-id">

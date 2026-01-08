@@ -42,20 +42,20 @@ const saveSettingsToStorage = (settings) => {
     }
 };
 
-// Current readings (mock data)
-const CURRENT_VALUES = {
-    temperature: 24,
-    humidity: 76,
-    pressure: 24,
-    battery: 20
-};
-
 // Options
 const TASK_OPTIONS = ['Select Task', 'MOVE_FOUP', 'PICKUP', 'DELIVERY', 'RETURN_HOME', 'CHARGE'];
 const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay', 'Storage', 'Maintenance'];
 
 function Settings() {
-    const { currentRobots } = useDevice();
+    const { currentRobots, currentDeviceData } = useDevice();
+
+    // Get current values from WebSocket data (no mock data)
+    const currentValues = {
+        temperature: currentDeviceData?.environment?.ambient_temp,
+        humidity: currentDeviceData?.environment?.ambient_hum,
+        pressure: currentDeviceData?.environment?.atmospheric_pressure,
+        battery: null // Battery is per-robot, not device-level
+    };
 
     const [settings, setSettings] = useState(loadSettings);
     const [deviceSaveMessage, setDeviceSaveMessage] = useState(null);
@@ -141,7 +141,7 @@ function Settings() {
                             Temperature
                         </h3>
                         <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
-                            Current Temperature: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.temperature}°C</span>
+                            Current Temperature: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{currentValues.temperature != null ? `${currentValues.temperature.toFixed(1)}°C` : '-- °C'}</span>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                             <div>
@@ -194,7 +194,7 @@ function Settings() {
                             Humidity
                         </h3>
                         <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
-                            Current Humidity: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.humidity}%</span>
+                            Current Humidity: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{currentValues.humidity != null ? `${currentValues.humidity.toFixed(1)}%` : '-- %'}</span>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                             <div>
@@ -247,7 +247,7 @@ function Settings() {
                             Pressure
                         </h3>
                         <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
-                            Current Pressure: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.pressure} bar</span>
+                            Current Pressure: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{currentValues.pressure != null ? `${currentValues.pressure} hPa` : '-- hPa'}</span>
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                             <div>
@@ -300,7 +300,7 @@ function Settings() {
                             Battery
                         </h3>
                         <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
-                            Current Battery: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{CURRENT_VALUES.battery}%</span>
+                            Battery Threshold: <span style={{ color: '#7C3AED', fontWeight: '600' }}>Per Robot</span>
                         </p>
                         <div>
                             <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>Min (%)</label>

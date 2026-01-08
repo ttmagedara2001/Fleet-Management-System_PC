@@ -121,29 +121,19 @@
 
 // ==================== STOMP Topic Structure ====================
 
-/**
- * Topic naming convention for Spring Boot STOMP
- * /topic/<category>/<deviceId>/<sub-category>/<optional-robotId>
- * 
- * Device-level streams:
- * - /topic/stream/${deviceId}/env (1Hz)
- * - /topic/stream/${deviceId}/tasks/summary
- * - /topic/state/${deviceId}
- * 
- * Robot-level streams:
- * - /topic/stream/${deviceId}/robots/${robotId}/location (10Hz)
- * - /topic/stream/${deviceId}/robots/${robotId}/env (1Hz)
- * - /topic/stream/${deviceId}/robots/${robotId}/status
- * - /topic/stream/${deviceId}/robots/${robotId}/tasks
- */
+
 export const TOPIC_PATTERNS = {
-  DEVICE_ENV: (deviceId) => `/topic/stream/${deviceId}/env`,
-  DEVICE_STATE: (deviceId) => `/topic/state/${deviceId}`,
-  DEVICE_TASKS: (deviceId) => `/topic/stream/${deviceId}/tasks/summary`,
-  ROBOT_LOCATION: (deviceId, robotId) => `/topic/stream/${deviceId}/robots/${robotId}/location`,
-  ROBOT_ENV: (deviceId, robotId) => `/topic/stream/${deviceId}/robots/${robotId}/env`,
-  ROBOT_STATUS: (deviceId, robotId) => `/topic/stream/${deviceId}/robots/${robotId}/status`,
-  ROBOT_TASKS: (deviceId, robotId) => `/topic/stream/${deviceId}/robots/${robotId}/tasks`,
+  DEVICE_TEMP: (deviceId) => `/topic/stream/${deviceId}/fleetMS/temperature`,
+  DEVICE_AC: (deviceId) => `/topic/state/${deviceId}/fleetMS/ac`,
+  DEVICE_STATUS: (deviceId) => `/topic/state/${deviceId}/fleetMS/status`,
+  DEVICE_AIR: (deviceId) => `/topic/state/${deviceId}/fleetMS/airPurifier`,
+  DEVICE_TASKS: (deviceId) => `/topic/stream/${deviceId}/fleetMS/robots`,
+  ROBOT_LOCATION: (deviceId, robotId) => `/topic/stream/${deviceId}/fleetMS/robots/${robotId}/location`,
+  ROBOT_ENV: (deviceId, robotId) => `/topic/stream/${deviceId}/fleetMS/robots/${robotId}/temperature`,
+  ROBOT_STATUS: (deviceId, robotId) => `/topic/stream/${deviceId}/fleetMS/robots/${robotId}/status`,
+  ROBOT_TASKS: (deviceId, robotId) => `/topic/stream/${deviceId}/fleetMS/robots/${robotId}/tasks`,
+  ROBOT_TASK_UPDATE: (deviceId, robotId) => `/topic/state/${deviceId}/fleetMS/robots/${robotId}/tasks`,
+  ROBOT_BATTERY: (deviceId, robotId) => `/topic/stream/${deviceId}/fleetMS/robots/${robotId}/battery`,
 };
 
 // ==================== Status Constants ====================

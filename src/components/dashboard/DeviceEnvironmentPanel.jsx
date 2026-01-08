@@ -152,9 +152,9 @@ function DeviceEnvironmentPanel() {
                 />
                 <MetricCard
                     icon={Wind}
-                    label="Air Scrubber"
-                    value={env.air_scrubber_status || '--'}
-                    status={env.air_scrubber_status === 'ACTIVE' ? 'normal' : 'warning'}
+                    label="Air Purifier"
+                    value={state.air_purifier || '--'}
+                    status={state.air_purifier === 'ON' || state.air_purifier === 'ACTIVE' ? 'normal' : 'warning'}
                 />
             </div>
 
@@ -165,14 +165,14 @@ function DeviceEnvironmentPanel() {
                     <StatusCard
                         icon={Activity}
                         label="Gateway Health"
-                        value={state.gateway_health || 'Unknown'}
-                        isActive={state.gateway_health === 'NOMINAL'}
+                        value={state.gateway_health || state.status || 'Unknown'}
+                        isActive={state.gateway_health === 'NOMINAL' || state.status === 'ONLINE' || state.status === 'OK'}
                     />
                     <StatusCard
                         icon={Power}
                         label="AC Power"
                         value={state.ac_power || 'Unknown'}
-                        isActive={state.ac_power === 'ON'}
+                        isActive={state.ac_power === 'ON' || state.ac_power === 'ACTIVE'}
                     />
                     <StatusCard
                         icon={Wifi}

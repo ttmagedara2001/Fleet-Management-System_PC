@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
     Download,
     RefreshCw,
@@ -7,7 +7,9 @@ import {
     Battery,
     Loader2,
     Clock,
-    Globe
+    Globe,
+    AlertCircle,
+    Database
 } from 'lucide-react';
 import {
     LineChart,
@@ -20,62 +22,99 @@ import {
     Legend
 } from 'recharts';
 import { useDevice } from '../contexts/DeviceContext';
+import { getAllStreamData, getTimeRange } from '../services/api';
 
-// Generate mock historical data for the chart
-const generateHistoricalData = (hours = 6) => {
-    const data = [];
-    const now = new Date();
-    const pointsCount = hours * 12; // 5 minute intervals
-
-    for (let i = pointsCount; i >= 0; i--) {
-        const date = new Date(now.getTime() - i * 5 * 60 * 1000);
-
-        // Create realistic sensor patterns
-        const timeOfDay = date.getHours() + date.getMinutes() / 60;
-        const tempBase = 22 + Math.sin(timeOfDay / 4) * 3;
-        const humidityBase = 45 + Math.cos(timeOfDay / 6) * 10;
-        const batteryBase = 85 - (i / pointsCount) * 15;
-
-        data.push({
-            time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
-            fullTime: date.toISOString(),
-            temp: +(tempBase + (Math.random() - 0.5) * 4).toFixed(1),
-            humidity: +(humidityBase + (Math.random() - 0.5) * 8).toFixed(1),
-            battery: +(batteryBase + (Math.random() - 0.5) * 5).toFixed(0)
-        });
-    }
-
-    return data;
+// Get task history from robots context
+const generateTaskHistory = (robots) => {
+    const tasks = [];
+    Object.values(robots || {}).forEach(robot => {
+        if (robot.task) {
+            tasks.push({
+                taskId: robot.task.taskId || `TSK-${robot.id}`,
+                taskName: robot.task.type || 'Unknown Task',
+                robotId: robot.id.replace('robot-', 'R-'),
+                status: robot.task.status || 'In Progress'
+            });
+        }
+    });
+    
+    // If no real tasks, return empty array
+    return tasks;
 };
 
-// Mock task history data
-const generateTaskHistory = () => [
-    { taskId: 'TSK-001', taskName: 'Material Transport', robotId: 'R-001', status: 'Completed' },
-    { taskId: 'TSK-002', taskName: 'Station Inspection', robotId: 'R-002', status: 'Completed' },
-    { taskId: 'TSK-003', taskName: 'Package Delivery', robotId: 'R-001', status: 'In Progress' },
-    { taskId: 'TSK-004', taskName: 'Inventory Scan', robotId: 'R-003', status: 'Pending' },
-    { taskId: 'TSK-005', taskName: 'Charging Return', robotId: 'R-002', status: 'Completed' },
-];
-
 function Analysis() {
-    const { selectedDeviceId } = useDevice();
+    const { selectedDeviceId, currentRobots } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
     const [timeRange, setTimeRange] = useState('6h');
     const [interval, setInterval] = useState('5 Seconds');
+    const [chartData, setChartData] = useState([]);
+    const [dataSource, setDataSource] = useState('loading'); // 'api', 'empty', 'loading', 'error'
     const [activeMetrics, setActiveMetrics] = useState({
         temp: true,
         humidity: true,
         battery: true
     });
 
-    // Generate chart data based on time range
-    const chartData = useMemo(() => {
-        const hoursMap = { '1h': 1, '6h': 6, '12h': 12, '24h': 24 };
-        return generateHistoricalData(hoursMap[timeRange] || 6);
-    }, [timeRange]);
+    // Fetch data from API
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        console.log(`[Analysis] 📊 Fetching data for device: ${selectedDeviceId}, range: ${timeRange}`);
 
-    const taskHistory = useMemo(() => generateTaskHistory(), []);
+        try {
+            const { startTime, endTime } = getTimeRange(timeRange);
+            
+            const response = await getAllStreamData(
+                selectedDeviceId,
+                startTime,
+                endTime,
+                0,
+                500
+            );
+
+            if (response.status === 'Success' && response.data && response.data.length > 0) {
+                // Transform API data for chart
+                const transformed = response.data.map(record => ({
+                    time: new Date(record.timestamp).toLocaleTimeString([], { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        hour12: true 
+                    }),
+                    fullTime: record.timestamp,
+                    temp: record.temperature ?? null,
+                    humidity: record.humidity ?? null,
+                    battery: record.battery ?? null,
+                    pressure: record.pressure ?? null
+                }));
+
+                setChartData(transformed);
+                setDataSource('api');
+                console.log(`[Analysis] ✅ Loaded ${transformed.length} data points from API`);
+            } else {
+                // No data from API - show empty state
+                console.log('[Analysis] ℹ️ No data available from API');
+                setChartData([]);
+                setDataSource('empty');
+            }
+        } catch (err) {
+            console.error('[Analysis] ❌ API error:', err);
+            setError(err.message || 'Failed to fetch data');
+            setChartData([]);
+            setDataSource('error');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [selectedDeviceId, timeRange]);
+
+    // Fetch data on mount and when dependencies change
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    // Generate task history from current robots
+    const taskHistory = useMemo(() => generateTaskHistory(currentRobots), [currentRobots]);
 
     const toggleMetric = (metric) => {
         setActiveMetrics(prev => ({
@@ -86,18 +125,39 @@ function Analysis() {
 
     const handleExportCSV = () => {
         console.log('[Analysis] 📥 Exporting CSV...');
-        // CSV export logic
+        
+        if (chartData.length === 0) {
+            alert('No data to export');
+            return;
+        }
+
+        // Create CSV content
+        const headers = ['Time', 'Full Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Battery (%)'];
+        const rows = chartData.map(row => [
+            row.time,
+            row.fullTime,
+            row.temp ?? '',
+            row.humidity ?? '',
+            row.battery ?? ''
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+
+        // Download file
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${selectedDeviceId}_data_${timeRange}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+        
+        console.log('[Analysis] ✅ CSV exported');
     };
 
     const handleFetchData = async () => {
-        setIsLoading(true);
-        console.log('[Analysis] 📊 Fetching historical data...');
-
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        setIsLoading(false);
-        console.log('[Analysis] ✅ Data refreshed');
+        await fetchData();
     };
 
     // Styles
@@ -293,7 +353,20 @@ function Analysis() {
         <div style={styles.container}>
             {/* Header */}
             <div style={styles.header}>
-                <h1 style={styles.title}>Environmental Data | Device</h1>
+                <h1 style={styles.title}>Environmental Data | {selectedDeviceId}</h1>
+                {dataSource === 'fallback' && (
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px', 
+                        color: '#F59E0B',
+                        fontSize: '13px',
+                        marginTop: '4px'
+                    }}>
+                        <AlertCircle size={14} />
+                        <span>Showing sample data - API returned no records</span>
+                    </div>
+                )}
             </div>
 
             {/* Chart Card */}
@@ -316,14 +389,32 @@ function Analysis() {
                                 Last 6 Hours
                             </button>
                             <button style={styles.filterPill}>
-                                5 Seconds
+                                {interval}
                             </button>
                             <button style={styles.filterPill}>
                                 {chartData.length} points
                             </button>
-                            <button style={styles.filterPill}>
+                            <button 
+                                style={{
+                                    ...styles.filterPill,
+                                    background: dataSource === 'api' ? '#D1FAE5' : (dataSource === 'empty' || dataSource === 'error') ? '#FEE2E2' : '#F3F4F6',
+                                    borderColor: dataSource === 'api' ? '#10B981' : (dataSource === 'empty' || dataSource === 'error') ? '#EF4444' : '#E5E7EB',
+                                    color: dataSource === 'api' ? '#065F46' : (dataSource === 'empty' || dataSource === 'error') ? '#991B1B' : '#6B7280'
+                                }}
+                            >
                                 <Globe size={12} />
-                                HTTP API
+                                {dataSource === 'api' ? 'HTTP API' : dataSource === 'loading' ? 'Loading...' : 'No Data'}
+                            </button>
+                            <button
+                                style={{
+                                    ...styles.filterPill,
+                                    cursor: isLoading ? 'not-allowed' : 'pointer'
+                                }}
+                                onClick={handleFetchData}
+                                disabled={isLoading}
+                            >
+                                <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+                                {isLoading ? 'Loading...' : 'Refresh'}
                             </button>
                         </div>
                     </div>
@@ -413,81 +504,133 @@ function Analysis() {
                     </div>
                 </div>
 
-                {/* Chart */}
+                {/* Chart or Empty State */}
                 <div style={styles.chartContainer}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                            <XAxis
-                                dataKey="time"
-                                tick={{ fontSize: 11, fill: '#6B7280' }}
-                                tickLine={false}
-                                axisLine={{ stroke: '#E5E7EB' }}
-                            />
-                            <YAxis
-                                yAxisId="left"
-                                tick={{ fontSize: 11, fill: '#6B7280' }}
-                                tickLine={false}
-                                axisLine={{ stroke: '#E5E7EB' }}
-                                domain={[0, 100]}
-                            />
-                            <YAxis
-                                yAxisId="right"
-                                orientation="right"
-                                tick={{ fontSize: 11, fill: '#6B7280' }}
-                                tickLine={false}
-                                axisLine={{ stroke: '#E5E7EB' }}
-                                domain={[0, 2400]}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: 'white',
-                                    border: '1px solid #E5E7EB',
+                    {isLoading ? (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: '100%',
+                            color: '#6B7280'
+                        }}>
+                            <Loader2 size={48} className="animate-spin" style={{ color: '#7C3AED', marginBottom: '16px' }} />
+                            <p>Loading data...</p>
+                        </div>
+                    ) : chartData.length === 0 ? (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: '100%',
+                            color: '#6B7280',
+                            textAlign: 'center'
+                        }}>
+                            <Database size={48} style={{ color: '#D1D5DB', marginBottom: '16px' }} />
+                            <p style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Historical Data Available</p>
+                            <p style={{ fontSize: '13px', maxWidth: '400px' }}>
+                                {error 
+                                    ? `Error: ${error}` 
+                                    : `No stream data found for ${selectedDeviceId} in the last ${timeRange}. Data will appear here once the device starts streaming.`
+                                }
+                            </p>
+                            <button
+                                style={{
+                                    marginTop: '16px',
+                                    padding: '8px 16px',
                                     borderRadius: '8px',
-                                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                                    border: '1px solid #7C3AED',
+                                    background: '#7C3AED',
+                                    color: 'white',
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
                                 }}
-                            />
-
-                            {activeMetrics.temp && (
-                                <Line
-                                    yAxisId="left"
-                                    type="stepAfter"
-                                    dataKey="temp"
-                                    name="Temperature"
-                                    stroke={metricColors.temp}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 4 }}
+                                onClick={handleFetchData}
+                            >
+                                <RefreshCw size={14} />
+                                Try Again
+                            </button>
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                                <XAxis
+                                    dataKey="time"
+                                    tick={{ fontSize: 11, fill: '#6B7280' }}
+                                    tickLine={false}
+                                    axisLine={{ stroke: '#E5E7EB' }}
                                 />
-                            )}
-
-                            {activeMetrics.humidity && (
-                                <Line
+                                <YAxis
                                     yAxisId="left"
-                                    type="stepAfter"
-                                    dataKey="humidity"
-                                    name="Humidity"
-                                    stroke={metricColors.humidity}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 4 }}
+                                    tick={{ fontSize: 11, fill: '#6B7280' }}
+                                    tickLine={false}
+                                    axisLine={{ stroke: '#E5E7EB' }}
+                                    domain={[0, 100]}
                                 />
-                            )}
+                                <YAxis
+                                    yAxisId="right"
+                                    orientation="right"
+                                    tick={{ fontSize: 11, fill: '#6B7280' }}
+                                    tickLine={false}
+                                    axisLine={{ stroke: '#E5E7EB' }}
+                                    domain={[0, 2400]}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: 'white',
+                                        border: '1px solid #E5E7EB',
+                                        borderRadius: '8px',
+                                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                                    }}
+                                />
 
-                            {activeMetrics.battery && (
-                                <Line
-                                    yAxisId="left"
-                                    type="stepAfter"
-                                    dataKey="battery"
-                                    name="Battery"
-                                    stroke={metricColors.battery}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 4 }}
-                                />
-                            )}
-                        </LineChart>
-                    </ResponsiveContainer>
+                                {activeMetrics.temp && (
+                                    <Line
+                                        yAxisId="left"
+                                        type="stepAfter"
+                                        dataKey="temp"
+                                        name="Temperature"
+                                        stroke={metricColors.temp}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        activeDot={{ r: 4 }}
+                                    />
+                                )}
+
+                                {activeMetrics.humidity && (
+                                    <Line
+                                        yAxisId="left"
+                                        type="stepAfter"
+                                        dataKey="humidity"
+                                        name="Humidity"
+                                        stroke={metricColors.humidity}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        activeDot={{ r: 4 }}
+                                    />
+                                )}
+
+                                {activeMetrics.battery && (
+                                    <Line
+                                        yAxisId="left"
+                                        type="stepAfter"
+                                        dataKey="battery"
+                                        name="Battery"
+                                        stroke={metricColors.battery}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        activeDot={{ r: 4 }}
+                                    />
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                    )}
                 </div>
             </div>
 
@@ -507,23 +650,36 @@ function Analysis() {
                         </tr>
                     </thead>
                     <tbody>
-                        {taskHistory.map((task, index) => (
-                            <tr key={task.taskId}>
-                                <td style={styles.td}>{task.taskId}</td>
-                                <td style={styles.td}>{task.taskName}</td>
-                                <td style={styles.td}>{task.robotId}</td>
-                                <td style={styles.td}>
-                                    <span style={{
-                                        ...styles.statusBadge,
-                                        ...getStatusStyle(task.status)
-                                    }}>
-                                        {task.status}
-                                    </span>
+                        {taskHistory.length > 0 ? (
+                            taskHistory.map((task, index) => (
+                                <tr key={task.taskId}>
+                                    <td style={styles.td}>{task.taskId}</td>
+                                    <td style={styles.td}>{task.taskName}</td>
+                                    <td style={styles.td}>{task.robotId}</td>
+                                    <td style={styles.td}>
+                                        <span style={{
+                                            ...styles.statusBadge,
+                                            ...getStatusStyle(task.status)
+                                        }}>
+                                            {task.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan={4} style={{ 
+                                    ...styles.td, 
+                                    textAlign: 'center', 
+                                    padding: '40px',
+                                    color: '#9CA3AF'
+                                }}>
+                                    No active tasks - Waiting for robot data from WebSocket
                                 </td>
                             </tr>
-                        ))}
+                        )}
                         {/* Empty rows to match design */}
-                        {[...Array(Math.max(0, 6 - taskHistory.length))].map((_, i) => (
+                        {taskHistory.length > 0 && [...Array(Math.max(0, 6 - taskHistory.length))].map((_, i) => (
                             <tr key={`empty-${i}`}>
                                 <td style={styles.emptyRow}></td>
                                 <td style={styles.emptyRow}></td>

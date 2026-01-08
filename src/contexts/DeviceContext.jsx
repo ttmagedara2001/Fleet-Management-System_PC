@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useStomp } from './StompContext';
+import { TOPICS, toMqttFormat } from '../services/webSocketClient';
+import { getStateDetails } from '../services/api';
 
 const DeviceContext = createContext(null);
 
@@ -15,13 +17,14 @@ const DEFAULT_DEVICE_STATE = {
     environment: {
         ambient_temp: null,
         ambient_hum: null,
-        atmospheric_pressure: null,
-        air_scrubber_status: null
+        atmospheric_pressure: null
     },
     state: {
+        ac_power: null,
+        air_purifier: null,
+        status: null,
         gateway_health: null,
         active_alert: null,
-        ac_power: null,
         wifi_rssi: null
     },
     taskSummary: null,
@@ -53,18 +56,145 @@ const getThresholds = () => {
 export function DeviceProvider({ children }) {
     const { isConnected, subscribe, unsubscribe } = useStomp();
 
-    const [selectedDeviceId, setSelectedDeviceId] = useState(DEVICES[0].id);
+    // Load persisted state from localStorage
+    const [selectedDeviceId, setSelectedDeviceId] = useState(() => {
+        try {
+            const saved = localStorage.getItem('fabrix_selectedDeviceId');
+            if (saved && DEVICES.some(d => d.id === saved)) {
+                return saved;
+            }
+        } catch (e) {
+            console.error('[Device] Failed to load selectedDeviceId:', e);
+        }
+        return DEVICES[0].id;
+    });
+
     const [deviceData, setDeviceData] = useState(() => {
+        try {
+            const saved = localStorage.getItem('fabrix_deviceData');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Merge with defaults to ensure all devices exist
+                const merged = {};
+                DEVICES.forEach(device => {
+                    merged[device.id] = { ...DEFAULT_DEVICE_STATE, ...parsed[device.id] };
+                });
+                return merged;
+            }
+        } catch (e) {
+            console.error('[Device] Failed to load deviceData:', e);
+        }
         const initial = {};
         DEVICES.forEach(device => {
             initial[device.id] = { ...DEFAULT_DEVICE_STATE };
         });
         return initial;
     });
-    const [robots, setRobots] = useState({});
-    const [alerts, setAlerts] = useState([]);
+
+    const [robots, setRobots] = useState(() => {
+        try {
+            const saved = localStorage.getItem('fabrix_robots');
+            if (saved) return JSON.parse(saved);
+        } catch (e) {
+            console.error('[Device] Failed to load robots:', e);
+        }
+        return {};
+    });
+
+    const [alerts, setAlerts] = useState(() => {
+        try {
+            const saved = localStorage.getItem('fabrix_alerts');
+            if (saved) return JSON.parse(saved);
+        } catch (e) {
+            console.error('[Device] Failed to load alerts:', e);
+        }
+        return [];
+    });
 
     const subscriptionsRef = useRef([]);
+
+    // Persist selectedDeviceId to localStorage
+    useEffect(() => {
+        try {
+            localStorage.setItem('fabrix_selectedDeviceId', selectedDeviceId);
+        } catch (e) {
+            console.error('[Device] Failed to save selectedDeviceId:', e);
+        }
+    }, [selectedDeviceId]);
+
+    // Persist deviceData to localStorage (debounced)
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            try {
+                localStorage.setItem('fabrix_deviceData', JSON.stringify(deviceData));
+            } catch (e) {
+                console.error('[Device] Failed to save deviceData:', e);
+            }
+        }, 1000);
+        return () => clearTimeout(timeout);
+    }, [deviceData]);
+
+    // Persist robots to localStorage (debounced)
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            try {
+                localStorage.setItem('fabrix_robots', JSON.stringify(robots));
+            } catch (e) {
+                console.error('[Device] Failed to save robots:', e);
+            }
+        }, 1000);
+        return () => clearTimeout(timeout);
+    }, [robots]);
+
+    // Persist alerts to localStorage (debounced)
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            try {
+                localStorage.setItem('fabrix_alerts', JSON.stringify(alerts));
+            } catch (e) {
+                console.error('[Device] Failed to save alerts:', e);
+            }
+        }, 500);
+        return () => clearTimeout(timeout);
+    }, [alerts]);
+
+    // Fetch initial device state from API on device selection change
+    useEffect(() => {
+        const fetchInitialState = async () => {
+            if (!selectedDeviceId) return;
+
+            console.log(`[Device] 📡 Fetching initial state for device: ${selectedDeviceId}`);
+
+            try {
+                const response = await getStateDetails(selectedDeviceId);
+                
+                if (response.status === 'Success' && response.data) {
+                    console.log('[Device] ✅ Initial state received:', response.data);
+                    
+                    // Update device state with API data
+                    setDeviceData(prev => ({
+                        ...prev,
+                        [selectedDeviceId]: {
+                            ...prev[selectedDeviceId],
+                            state: {
+                                ...prev[selectedDeviceId]?.state,
+                                ac_power: response.data.ac?.status ?? response.data.ac?.payload?.status ?? prev[selectedDeviceId]?.state?.ac_power,
+                                air_purifier: response.data.airPurifier?.status ?? response.data.airPurifier?.payload?.status ?? prev[selectedDeviceId]?.state?.air_purifier,
+                                status: response.data.status?.status ?? response.data.status?.payload?.status ?? prev[selectedDeviceId]?.state?.status,
+                                gateway_health: response.data.status?.gateway_health ?? prev[selectedDeviceId]?.state?.gateway_health
+                            },
+                            lastUpdate: Date.now()
+                        }
+                    }));
+                }
+            } catch (error) {
+                console.error('[Device] ❌ Failed to fetch initial state:', error);
+                // Continue with WebSocket updates - API fetch is optional
+            }
+        };
+
+        fetchInitialState();
+    }, [selectedDeviceId]);
 
     // Get current device data
     const currentDevice = DEVICES.find(d => d.id === selectedDeviceId);
@@ -94,19 +224,19 @@ export function DeviceProvider({ children }) {
         });
     }, []);
 
-    // Handle device environment updates with localStorage thresholds
-    const handleEnvironmentUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 🌡️ Environment update for', deviceId, ':', payload);
+    // Handle device temperature updates
+    const handleTemperatureUpdate = useCallback((deviceId, payload) => {
+        console.log('[Device] 🌡️ Temperature update for', deviceId, ':', payload);
 
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
                 ...prev[deviceId],
                 environment: {
-                    ambient_temp: payload.ambient_temp ?? prev[deviceId]?.environment?.ambient_temp,
-                    ambient_hum: payload.ambient_hum ?? prev[deviceId]?.environment?.ambient_hum,
-                    atmospheric_pressure: payload.atmospheric_pressure ?? prev[deviceId]?.environment?.atmospheric_pressure,
-                    air_scrubber_status: payload.air_scrubber_status ?? prev[deviceId]?.environment?.air_scrubber_status
+                    ...prev[deviceId]?.environment,
+                    ambient_temp: payload.temperature ?? payload.temp ?? payload.ambient_temp ?? prev[deviceId]?.environment?.ambient_temp,
+                    ambient_hum: payload.humidity ?? payload.ambient_hum ?? prev[deviceId]?.environment?.ambient_hum,
+                    atmospheric_pressure: payload.pressure ?? payload.atmospheric_pressure ?? prev[deviceId]?.environment?.atmospheric_pressure
                 },
                 lastUpdate: Date.now()
             }
@@ -114,62 +244,64 @@ export function DeviceProvider({ children }) {
 
         // Get thresholds from localStorage
         const thresholds = getThresholds();
+        const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp;
 
         // Check for temperature threshold violations
-        if (payload.ambient_temp) {
-            if (payload.ambient_temp > thresholds.temperature.critical) {
+        if (temp != null) {
+            if (temp > thresholds.temperature.critical) {
                 addAlert({
                     type: 'critical',
                     deviceId,
-                    message: `CRITICAL: Temperature at ${payload.ambient_temp}°C exceeds ${thresholds.temperature.critical}°C`,
+                    message: `CRITICAL: Temperature at ${temp}°C exceeds ${thresholds.temperature.critical}°C`,
                     timestamp: Date.now()
                 });
-            } else if (payload.ambient_temp > thresholds.temperature.max) {
+            } else if (temp > thresholds.temperature.max) {
                 addAlert({
                     type: 'warning',
                     deviceId,
-                    message: `High temperature detected: ${payload.ambient_temp}°C (max: ${thresholds.temperature.max}°C)`,
+                    message: `High temperature detected: ${temp}°C (max: ${thresholds.temperature.max}°C)`,
                     timestamp: Date.now()
                 });
-            } else if (payload.ambient_temp < thresholds.temperature.min) {
+            } else if (temp < thresholds.temperature.min) {
                 addAlert({
                     type: 'warning',
                     deviceId,
-                    message: `Low temperature detected: ${payload.ambient_temp}°C (min: ${thresholds.temperature.min}°C)`,
+                    message: `Low temperature detected: ${temp}°C (min: ${thresholds.temperature.min}°C)`,
                     timestamp: Date.now()
                 });
             }
         }
 
         // Check for humidity threshold violations
-        if (payload.ambient_hum) {
-            if (payload.ambient_hum > thresholds.humidity.critical) {
+        const humidity = payload.humidity ?? payload.ambient_hum;
+        if (humidity != null) {
+            if (humidity > thresholds.humidity.critical) {
                 addAlert({
                     type: 'critical',
                     deviceId,
-                    message: `CRITICAL: Humidity at ${payload.ambient_hum}% exceeds ${thresholds.humidity.critical}%`,
+                    message: `CRITICAL: Humidity at ${humidity}% exceeds ${thresholds.humidity.critical}%`,
                     timestamp: Date.now()
                 });
-            } else if (payload.ambient_hum > thresholds.humidity.max) {
+            } else if (humidity > thresholds.humidity.max) {
                 addAlert({
                     type: 'warning',
                     deviceId,
-                    message: `High humidity detected: ${payload.ambient_hum}% (max: ${thresholds.humidity.max}%)`,
+                    message: `High humidity detected: ${humidity}% (max: ${thresholds.humidity.max}%)`,
                     timestamp: Date.now()
                 });
-            } else if (payload.ambient_hum < thresholds.humidity.min) {
+            } else if (humidity < thresholds.humidity.min) {
                 addAlert({
                     type: 'warning',
                     deviceId,
-                    message: `Low humidity detected: ${payload.ambient_hum}% (min: ${thresholds.humidity.min}%)`,
+                    message: `Low humidity detected: ${humidity}% (min: ${thresholds.humidity.min}%)`,
                     timestamp: Date.now()
                 });
             }
         }
 
         // Check for pressure threshold violations
-        if (payload.atmospheric_pressure) {
-            const pressure = payload.atmospheric_pressure;
+        const pressure = payload.pressure ?? payload.atmospheric_pressure;
+        if (pressure != null) {
             if (pressure > thresholds.pressure.max || pressure < thresholds.pressure.min) {
                 addAlert({
                     type: 'warning',
@@ -181,55 +313,97 @@ export function DeviceProvider({ children }) {
         }
     }, [addAlert]);
 
-    // Handle device state updates
-    const handleStateUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 📊 State update for', deviceId, ':', payload);
+    // Handle AC state updates
+    const handleACUpdate = useCallback((deviceId, payload) => {
+        console.log('[Device] ❄️ AC update for', deviceId, ':', payload);
 
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
                 ...prev[deviceId],
                 state: {
-                    gateway_health: payload.gateway_health ?? prev[deviceId]?.state?.gateway_health,
-                    active_alert: payload.active_alert ?? prev[deviceId]?.state?.active_alert,
-                    ac_power: payload.ac_power ?? prev[deviceId]?.state?.ac_power,
-                    wifi_rssi: payload.wifi_rssi ?? prev[deviceId]?.state?.wifi_rssi
+                    ...prev[deviceId]?.state,
+                    ac_power: payload.status ?? payload.state ?? payload.ac_power ?? prev[deviceId]?.state?.ac_power
                 },
                 lastUpdate: Date.now()
             }
         }));
+    }, []);
 
-        // Check for active alerts
-        if (payload.active_alert) {
-            addAlert({
-                type: 'critical',
-                deviceId,
-                message: payload.active_alert,
-                timestamp: Date.now()
-            });
-        }
-
-        // Check for robot discovery in state payload
-        if (payload.robots && Array.isArray(payload.robots)) {
-            console.log('[Device] 🤖 Discovered robots:', payload.robots);
-            payload.robots.forEach(robotId => {
-                registerRobot(deviceId, robotId);
-            });
-        }
-    }, [addAlert]);
-
-    // Handle task summary updates
-    const handleTaskSummaryUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 📋 Task summary update for', deviceId, ':', payload);
+    // Handle device status updates
+    const handleDeviceStatusUpdate = useCallback((deviceId, payload) => {
+        console.log('[Device] 📊 Device status update for', deviceId, ':', payload);
 
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
                 ...prev[deviceId],
-                taskSummary: payload,
+                state: {
+                    ...prev[deviceId]?.state,
+                    status: payload.status ?? payload.state ?? prev[deviceId]?.state?.status,
+                    gateway_health: payload.gateway_health ?? payload.health ?? prev[deviceId]?.state?.gateway_health,
+                    wifi_rssi: payload.wifi_rssi ?? payload.rssi ?? prev[deviceId]?.state?.wifi_rssi,
+                    active_alert: payload.alert ?? payload.active_alert ?? prev[deviceId]?.state?.active_alert
+                },
                 lastUpdate: Date.now()
             }
         }));
+
+        // Check for active alerts from status
+        if (payload.alert || payload.active_alert) {
+            addAlert({
+                type: 'critical',
+                deviceId,
+                message: payload.alert || payload.active_alert,
+                timestamp: Date.now()
+            });
+        }
+    }, [addAlert]);
+
+    // Handle air purifier state updates
+    const handleAirPurifierUpdate = useCallback((deviceId, payload) => {
+        console.log('[Device] 🌬️ Air purifier update for', deviceId, ':', payload);
+
+        setDeviceData(prev => ({
+            ...prev,
+            [deviceId]: {
+                ...prev[deviceId],
+                state: {
+                    ...prev[deviceId]?.state,
+                    air_purifier: payload.status ?? payload.state ?? payload.air_purifier ?? prev[deviceId]?.state?.air_purifier
+                },
+                lastUpdate: Date.now()
+            }
+        }));
+    }, []);
+
+    // Handle robot discovery from device stream
+    const handleRobotsDiscovery = useCallback((deviceId, payload) => {
+        console.log('[Device] 🤖 Robots discovery for', deviceId, ':', payload);
+
+        // Payload could be array of robot IDs or object with robots array
+        const robotIds = Array.isArray(payload) ? payload : 
+                         (payload.robots ? payload.robots : 
+                         (payload.robotIds ? payload.robotIds : []));
+
+        robotIds.forEach(robotId => {
+            const id = typeof robotId === 'string' ? robotId : robotId.id || robotId.robotId;
+            if (id) {
+                registerRobot(deviceId, id);
+            }
+        });
+
+        // Also update task summary if present
+        if (payload.tasks || payload.task_summary) {
+            setDeviceData(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...prev[deviceId],
+                    taskSummary: payload.tasks || payload.task_summary,
+                    lastUpdate: Date.now()
+                }
+            }));
+        }
     }, []);
 
     // Register a robot and subscribe to its streams
@@ -260,8 +434,10 @@ export function DeviceProvider({ children }) {
         });
     }, []);
 
-    // Handle robot location updates (10Hz)
+    // Handle robot location updates
     const handleRobotLocationUpdate = useCallback((deviceId, robotId, payload) => {
+        console.log('[Device] 🤖📍 Robot location update:', robotId, payload);
+
         setRobots(prev => ({
             ...prev,
             [deviceId]: {
@@ -269,20 +445,22 @@ export function DeviceProvider({ children }) {
                 [robotId]: {
                     ...prev[deviceId]?.[robotId],
                     location: {
-                        lat: payload.lat ?? payload.latitude ?? prev[deviceId]?.[robotId]?.location?.lat,
-                        lng: payload.lng ?? payload.longitude ?? prev[deviceId]?.[robotId]?.location?.lng,
+                        lat: payload.lat ?? payload.latitude ?? payload.y ?? prev[deviceId]?.[robotId]?.location?.lat,
+                        lng: payload.lng ?? payload.longitude ?? payload.x ?? prev[deviceId]?.[robotId]?.location?.lng,
                         z: payload.z ?? payload.altitude ?? prev[deviceId]?.[robotId]?.location?.z
                     },
-                    heading: payload.heading ?? prev[deviceId]?.[robotId]?.heading,
+                    heading: payload.heading ?? payload.orientation ?? prev[deviceId]?.[robotId]?.heading,
                     lastUpdate: Date.now()
                 }
             }
         }));
     }, []);
 
-    // Handle robot environment updates (1Hz)
-    const handleRobotEnvUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖🌡️ Robot env update:', robotId, payload);
+    // Handle robot temperature updates
+    const handleRobotTempUpdate = useCallback((deviceId, robotId, payload) => {
+        console.log('[Device] 🤖🌡️ Robot temp update:', robotId, payload);
+
+        const temp = payload.temperature ?? payload.temp;
 
         setRobots(prev => ({
             ...prev,
@@ -291,7 +469,8 @@ export function DeviceProvider({ children }) {
                 [robotId]: {
                     ...prev[deviceId]?.[robotId],
                     environment: {
-                        temp: payload.temp ?? payload.temperature ?? prev[deviceId]?.[robotId]?.environment?.temp,
+                        ...prev[deviceId]?.[robotId]?.environment,
+                        temp: temp ?? prev[deviceId]?.[robotId]?.environment?.temp,
                         humidity: payload.humidity ?? prev[deviceId]?.[robotId]?.environment?.humidity
                     },
                     lastUpdate: Date.now()
@@ -300,8 +479,7 @@ export function DeviceProvider({ children }) {
         }));
 
         // Check for robot temperature threshold
-        const temp = payload.temp ?? payload.temperature;
-        if (temp && temp > 40) {
+        if (temp != null && temp > 40) {
             addAlert({
                 type: 'warning',
                 deviceId,
@@ -323,7 +501,7 @@ export function DeviceProvider({ children }) {
                 [robotId]: {
                     ...prev[deviceId]?.[robotId],
                     status: {
-                        battery: payload.battery ?? prev[deviceId]?.[robotId]?.status?.battery,
+                        ...prev[deviceId]?.[robotId]?.status,
                         load: payload.load ?? prev[deviceId]?.[robotId]?.status?.load,
                         state: payload.state ?? payload.status ?? prev[deviceId]?.[robotId]?.status?.state
                     },
@@ -332,32 +510,8 @@ export function DeviceProvider({ children }) {
             }
         }));
 
-        // Get thresholds from localStorage
-        const thresholds = getThresholds();
-
-        // Check for low battery
-        if (payload.battery) {
-            if (payload.battery <= thresholds.battery.critical) {
-                addAlert({
-                    type: 'critical',
-                    deviceId,
-                    robotId,
-                    message: `CRITICAL: Robot ${robotId} battery at ${payload.battery}%`,
-                    timestamp: Date.now()
-                });
-            } else if (payload.battery <= thresholds.battery.low) {
-                addAlert({
-                    type: 'warning',
-                    deviceId,
-                    robotId,
-                    message: `Robot ${robotId} low battery: ${payload.battery}%`,
-                    timestamp: Date.now()
-                });
-            }
-        }
-
         // Check for obstacle detection
-        if (payload.obstacle_detected) {
+        if (payload.obstacle_detected || payload.obstacle) {
             addAlert({
                 type: 'critical',
                 deviceId,
@@ -368,7 +522,53 @@ export function DeviceProvider({ children }) {
         }
     }, [addAlert]);
 
-    // Handle robot task updates
+    // Handle robot battery updates
+    const handleRobotBatteryUpdate = useCallback((deviceId, robotId, payload) => {
+        console.log('[Device] 🤖🔋 Robot battery update:', robotId, payload);
+
+        const battery = payload.battery ?? payload.level ?? payload.percentage;
+
+        setRobots(prev => ({
+            ...prev,
+            [deviceId]: {
+                ...prev[deviceId],
+                [robotId]: {
+                    ...prev[deviceId]?.[robotId],
+                    status: {
+                        ...prev[deviceId]?.[robotId]?.status,
+                        battery: battery ?? prev[deviceId]?.[robotId]?.status?.battery
+                    },
+                    lastUpdate: Date.now()
+                }
+            }
+        }));
+
+        // Get thresholds from localStorage
+        const thresholds = getThresholds();
+
+        // Check for low battery
+        if (battery != null) {
+            if (battery <= thresholds.battery.critical) {
+                addAlert({
+                    type: 'critical',
+                    deviceId,
+                    robotId,
+                    message: `CRITICAL: Robot ${robotId} battery at ${battery}%`,
+                    timestamp: Date.now()
+                });
+            } else if (battery <= thresholds.battery.low) {
+                addAlert({
+                    type: 'warning',
+                    deviceId,
+                    robotId,
+                    message: `Robot ${robotId} low battery: ${battery}%`,
+                    timestamp: Date.now()
+                });
+            }
+        }
+    }, [addAlert]);
+
+    // Handle robot task updates (both stream and state)
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
         console.log('[Device] 🤖📋 Robot task update:', robotId, payload);
 
@@ -395,126 +595,196 @@ export function DeviceProvider({ children }) {
         setAlerts([]);
     }, []);
 
-    // Subscribe to device streams when connected
+    // Subscribe to SELECTED device streams when connected or device changes
     useEffect(() => {
         if (!isConnected) {
-            console.log('[Fabrix Device] ⏳ Waiting for STOMP connection...');
+            console.log('[FleetMS] ⏳ Waiting for STOMP connection...');
             return;
         }
 
-        console.log('[Fabrix Device] 🔌 Setting up device subscriptions...');
-        console.log('[Fabrix Device] 📊 Device count:', DEVICES.length);
+        const deviceId = selectedDeviceId;
+        const device = DEVICES.find(d => d.id === deviceId);
 
-        DEVICES.forEach(device => {
-            const deviceId = device.id;
+        console.log('');
+        console.log('════════════════════════════════════════════════════════════');
+        console.log('🔌 [FleetMS] SUBSCRIBING TO DEVICE:', deviceId);
+        console.log('🏭 Device Name:', device?.name || 'Unknown');
+        console.log('📍 Zone:', device?.zone || 'Unknown');
+        console.log('════════════════════════════════════════════════════════════');
+        console.log('');
+        console.log('📡 [FleetMS] Device Topic Subscriptions:');
+        console.log('────────────────────────────────────────────────────────────');
 
-            // 1. Live Telemetry Stream - Primary device data stream
-            // Topic: /topic/stream/${deviceId}
-            const streamTopic = `/topic/stream/${deviceId}`;
-            console.log('[Fabrix Device] 📬 Subscribing to live telemetry:', streamTopic);
-            subscribe(streamTopic, (payload) => {
-                console.log('[Fabrix Device] Telemetry received for', deviceId);
-                // Route to appropriate handler based on payload structure
-                if (payload.ambient_temp !== undefined || payload.ambient_hum !== undefined) {
-                    handleEnvironmentUpdate(deviceId, payload);
-                }
-                if (payload.tasks || payload.task_summary) {
-                    handleTaskSummaryUpdate(deviceId, payload);
-                }
-                // Handle robot discovery from stream
-                if (payload.robots && Array.isArray(payload.robots)) {
-                    console.log('[Fabrix Device] 🤖 Discovered robots in stream:', payload.robots);
-                    payload.robots.forEach(robotId => registerRobot(deviceId, robotId));
-                }
-            });
-            subscriptionsRef.current.push(streamTopic);
-
-            // 2. Device State - Connection state, alerts, system status
-            // Topic: /topic/state/${deviceId}
-            const stateTopic = `/topic/state/${deviceId}`;
-            console.log('[Fabrix Device] 📬 Subscribing to device state:', stateTopic);
-            subscribe(stateTopic, (payload) => {
-                console.log('[Fabrix Device] State update received for', deviceId);
-                handleStateUpdate(deviceId, payload);
-            });
-            subscriptionsRef.current.push(stateTopic);
+        // 1. Device Temperature Stream
+        const tempTopic = TOPICS.DEVICE_TEMP(deviceId);
+        console.log('🌡️  Temperature:', toMqttFormat(tempTopic));
+        subscribe(tempTopic, (payload) => {
+            console.log('[FleetMS] 🌡️ Temperature data received:', payload);
+            handleTemperatureUpdate(deviceId, payload);
         });
+        subscriptionsRef.current.push(tempTopic);
 
-        console.log('[Fabrix Device] ✅ Device subscriptions complete');
+        // 2. Device AC State
+        const acTopic = TOPICS.DEVICE_AC(deviceId);
+        console.log('❄️  AC State:    ', toMqttFormat(acTopic));
+        subscribe(acTopic, (payload) => {
+            console.log('[FleetMS] ❄️ AC update received:', payload);
+            handleACUpdate(deviceId, payload);
+        });
+        subscriptionsRef.current.push(acTopic);
+
+        // 3. Device Status
+        const statusTopic = TOPICS.DEVICE_STATUS(deviceId);
+        console.log('📊 Status:     ', toMqttFormat(statusTopic));
+        subscribe(statusTopic, (payload) => {
+            console.log('[FleetMS] 📊 Status update received:', payload);
+            handleDeviceStatusUpdate(deviceId, payload);
+        });
+        subscriptionsRef.current.push(statusTopic);
+
+        // 4. Air Purifier State
+        const airTopic = TOPICS.DEVICE_AIR(deviceId);
+        console.log('🌬️  Air Purifier:', toMqttFormat(airTopic));
+        subscribe(airTopic, (payload) => {
+            console.log('[FleetMS] 🌬️ Air purifier update received:', payload);
+            handleAirPurifierUpdate(deviceId, payload);
+        });
+        subscriptionsRef.current.push(airTopic);
+
+        // 5. Robots Discovery Stream
+        const robotsTopic = TOPICS.DEVICE_ROBOTS(deviceId);
+        console.log('🤖 Robots:      ', toMqttFormat(robotsTopic));
+        subscribe(robotsTopic, (payload) => {
+            console.log('[FleetMS] 🤖 Robots data received:', payload);
+            handleRobotsDiscovery(deviceId, payload);
+        });
+        subscriptionsRef.current.push(robotsTopic);
+
+        console.log('────────────────────────────────────────────────────────────');
+        console.log('✅ [FleetMS] Device subscriptions complete!');
+        console.log('');
 
         return () => {
-            console.log('[Fabrix Device] 🧹 Cleaning up device subscriptions...');
+            console.log('');
+            console.log('🧹 [FleetMS] Cleaning up subscriptions for device:', deviceId);
             subscriptionsRef.current.forEach(topic => {
                 unsubscribe(topic);
             });
             subscriptionsRef.current = [];
-            console.log('[Fabrix Device] ✅ Cleanup complete');
+            console.log('✅ [FleetMS] Cleanup complete');
+            console.log('');
         };
-    }, [isConnected, subscribe, unsubscribe, handleEnvironmentUpdate, handleStateUpdate, handleTaskSummaryUpdate, registerRobot]);
+    }, [isConnected, selectedDeviceId, subscribe, unsubscribe, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery]);
 
-    // Subscribe to robot streams when robots are discovered
-    // Note: Robot-level subscriptions are handled after discovery
+    // Subscribe to robot streams when robots are discovered for SELECTED device
     useEffect(() => {
         if (!isConnected) return;
 
-        Object.entries(robots).forEach(([deviceId, deviceRobots]) => {
-            Object.keys(deviceRobots).forEach(robotId => {
-                // Check if already subscribed
-                const locationTopic = `/topic/stream/${deviceId}/robots/${robotId}/location`;
-                if (subscriptionsRef.current.includes(locationTopic)) return;
+        const deviceId = selectedDeviceId;
+        const deviceRobots = robots[deviceId] || {};
+        const robotIds = Object.keys(deviceRobots);
 
-                console.log('[Fabrix Device] 🤖 Setting up robot subscriptions for:', robotId);
+        if (robotIds.length === 0) return;
 
-                // Location (10Hz)
-                subscribe(locationTopic, (payload) => {
-                    handleRobotLocationUpdate(deviceId, robotId, payload);
-                });
-                subscriptionsRef.current.push(locationTopic);
+        robotIds.forEach(robotId => {
+            // Check if already subscribed using TOPICS pattern
+            const locationTopic = TOPICS.ROBOT_LOCATION(deviceId, robotId);
+            if (subscriptionsRef.current.includes(locationTopic)) return;
 
-                // Environment (1Hz)
-                const envTopic = `/topic/stream/${deviceId}/robots/${robotId}/env`;
-                subscribe(envTopic, (payload) => {
-                    handleRobotEnvUpdate(deviceId, robotId, payload);
-                });
-                subscriptionsRef.current.push(envTopic);
+            console.log('');
+            console.log('════════════════════════════════════════════════════════════');
+            console.log('🤖 [FleetMS] NEW ROBOT DISCOVERED:', robotId);
+            console.log('🔗 Parent Device:', deviceId);
+            console.log('════════════════════════════════════════════════════════════');
+            console.log('');
+            console.log('📡 [FleetMS] Robot Topic Subscriptions:');
+            console.log('────────────────────────────────────────────────────────────');
 
-                // Status
-                const statusTopic = `/topic/stream/${deviceId}/robots/${robotId}/status`;
-                subscribe(statusTopic, (payload) => {
-                    handleRobotStatusUpdate(deviceId, robotId, payload);
-                });
-                subscriptionsRef.current.push(statusTopic);
-
-                // Tasks
-                const taskTopic = `/topic/stream/${deviceId}/robots/${robotId}/tasks`;
-                subscribe(taskTopic, (payload) => {
-                    handleRobotTaskUpdate(deviceId, robotId, payload);
-                });
-                subscriptionsRef.current.push(taskTopic);
-
-                console.log('[Fabrix Device] ✅ Robot subscriptions complete for:', robotId);
+            // Location
+            console.log('📍 Location:   ', toMqttFormat(locationTopic));
+            subscribe(locationTopic, (payload) => {
+                handleRobotLocationUpdate(deviceId, robotId, payload);
             });
+            subscriptionsRef.current.push(locationTopic);
+
+            // Temperature
+            const tempTopic = TOPICS.ROBOT_TEMP(deviceId, robotId);
+            console.log('🌡️  Temperature:', toMqttFormat(tempTopic));
+            subscribe(tempTopic, (payload) => {
+                handleRobotTempUpdate(deviceId, robotId, payload);
+            });
+            subscriptionsRef.current.push(tempTopic);
+
+            // Status
+            const statusTopic = TOPICS.ROBOT_STATUS(deviceId, robotId);
+            console.log('📊 Status:     ', toMqttFormat(statusTopic));
+            subscribe(statusTopic, (payload) => {
+                handleRobotStatusUpdate(deviceId, robotId, payload);
+            });
+            subscriptionsRef.current.push(statusTopic);
+
+            // Battery
+            const batteryTopic = TOPICS.ROBOT_BATTERY(deviceId, robotId);
+            console.log('🔋 Battery:    ', toMqttFormat(batteryTopic));
+            subscribe(batteryTopic, (payload) => {
+                handleRobotBatteryUpdate(deviceId, robotId, payload);
+            });
+            subscriptionsRef.current.push(batteryTopic);
+
+            // Tasks (stream)
+            const taskTopic = TOPICS.ROBOT_TASKS(deviceId, robotId);
+            console.log('📋 Tasks:      ', toMqttFormat(taskTopic));
+            subscribe(taskTopic, (payload) => {
+                handleRobotTaskUpdate(deviceId, robotId, payload);
+            });
+            subscriptionsRef.current.push(taskTopic);
+
+            // Task updates (state)
+            const taskUpdateTopic = TOPICS.ROBOT_TASK_UPDATE(deviceId, robotId);
+            console.log('📋 Task Update:', toMqttFormat(taskUpdateTopic));
+            subscribe(taskUpdateTopic, (payload) => {
+                handleRobotTaskUpdate(deviceId, robotId, payload);
+            });
+            subscriptionsRef.current.push(taskUpdateTopic);
+
+            console.log('────────────────────────────────────────────────────────────');
+            console.log('✅ [FleetMS] Robot subscriptions complete for:', robotId);
+            console.log('');
         });
-    }, [isConnected, robots, subscribe, handleRobotLocationUpdate, handleRobotEnvUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
+    }, [isConnected, selectedDeviceId, robots, subscribe, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate]);
 
-    // For demo purposes, register some mock robots
-    // TODO: Remove this in production - robots should be discovered via MQTT/WebSocket
-    useEffect(() => {
-        // Only register demo robots AFTER WebSocket connection is established
-        if (!isConnected) {
-            return;
+    // Robots are discovered via WebSocket - no mock data
+
+    // Refresh device state from API
+    const refreshDeviceState = useCallback(async () => {
+        if (!selectedDeviceId) return;
+
+        console.log(`[Device] 🔄 Refreshing state for device: ${selectedDeviceId}`);
+        
+        try {
+            const response = await getStateDetails(selectedDeviceId);
+            
+            if (response.status === 'Success' && response.data) {
+                setDeviceData(prev => ({
+                    ...prev,
+                    [selectedDeviceId]: {
+                        ...prev[selectedDeviceId],
+                        state: {
+                            ...prev[selectedDeviceId]?.state,
+                            ac_power: response.data.ac?.status ?? response.data.ac?.payload?.status ?? prev[selectedDeviceId]?.state?.ac_power,
+                            air_purifier: response.data.airPurifier?.status ?? response.data.airPurifier?.payload?.status ?? prev[selectedDeviceId]?.state?.air_purifier,
+                            status: response.data.status?.status ?? response.data.status?.payload?.status ?? prev[selectedDeviceId]?.state?.status,
+                            gateway_health: response.data.status?.gateway_health ?? prev[selectedDeviceId]?.state?.gateway_health
+                        },
+                        lastUpdate: Date.now()
+                    }
+                }));
+                console.log('[Device] ✅ State refreshed');
+            }
+        } catch (error) {
+            console.error('[Device] ❌ Failed to refresh state:', error);
         }
-
-        // Small delay to ensure subscriptions are set up first
-        const timeout = setTimeout(() => {
-            console.log('[Fabrix Device] 🎮 Registering demo robots for development...');
-            registerRobot('device9988', 'robot-001');
-            registerRobot('device9988', 'robot-002');
-            console.log('[Fabrix Device] ✅ Demo robots registered');
-        }, 500);
-
-        return () => clearTimeout(timeout);
-    }, [isConnected, registerRobot]);
+    }, [selectedDeviceId]);
 
     const value = {
         devices: DEVICES,
@@ -529,7 +799,8 @@ export function DeviceProvider({ children }) {
         addAlert,
         clearAlert,
         clearAllAlerts,
-        registerRobot
+        registerRobot,
+        refreshDeviceState
     };
 
     return (

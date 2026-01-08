@@ -14,21 +14,49 @@ export function AuthProvider({ children }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Perform login function (can be called manually for retry)
+    const performLogin = async () => {
+        console.log('🔐 Performing login...');
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // Clear any existing tokens first
+            clearTokens();
+            
+            const result = await login();
+            setToken(result.jwtToken);
+            setError(null);
+            console.log('✅ Login successful!');
+            return result;
+        } catch (err) {
+            console.error('❌ Login failed:', err.message);
+            setError(err.message);
+            throw err;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // Auto-login on mount
     useEffect(() => {
         async function autoLogin() {
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('🚀 APP STARTED - Initiating auto-login...');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
             // Check for existing token
             const existingToken = getToken();
             if (existingToken) {
-                console.log('✅ Using existing token from storage');
+                console.log('✅ Found existing token in storage');
+                console.log('🎫 Token length:', existingToken.length);
                 setToken(existingToken);
                 setIsLoading(false);
                 return;
             }
 
-            // Call /get-token API
+            // No existing token - perform fresh login
+            console.log('📭 No existing token found, performing fresh login...');
             try {
                 const result = await login();
                 setToken(result.jwtToken);
@@ -47,6 +75,7 @@ export function AuthProvider({ children }) {
     const logout = () => {
         clearTokens();
         setToken(null);
+        setError(null);
         console.log('👋 Logged out');
     };
 
@@ -55,7 +84,8 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!token,
         isLoading,
         error,
-        logout
+        logout,
+        performLogin
     };
 
     return (
