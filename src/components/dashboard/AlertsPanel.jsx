@@ -15,6 +15,7 @@ function AlertsPanel() {
         if (diffMins < 60) return `${diffMins}m ago`;
         if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
         return date.toLocaleDateString();
+    
     };
 
     const criticalAlerts = alerts.filter(a => a.type === 'critical');
