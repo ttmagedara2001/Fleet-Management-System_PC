@@ -1,31 +1,19 @@
 /**
- * Simple WebSocket Client
+ * WebSocket Client for Fleet Management System
  *
  * STOMP-over-WebSocket client that:
- * - Connects with JWT token
- * - Subscribes to device topics
- * - Logs all activity to console
+ * - Connects with JWT token (encodedToken from /get-token API)
+ * - Subscribes to device topics:
+ *   - /topic/state/<deviceId>  - Device state updates
+ *   - /topic/stream/<deviceId> - Device stream data
  *
- * MQTT Topics Structure (IoT Device Format):
+ * Connection Flow:
  * ─────────────────────────────────────────────────────────────────
- * Raw MQTT (IoT Device):
- *   protonest/{deviceId}/stream/fleetMS/temperature      - Device temperature
- *   protonest/{deviceId}/state/fleetMS/ac                - AC state
- *   protonest/{deviceId}/state/fleetMS/status            - Device status
- *   protonest/{deviceId}/state/fleetMS/airPurifier       - Air purifier
- *   protonest/{deviceId}/stream/fleetMS/robots           - Robot discovery
- *
- * STOMP WebSocket Format (add /topic/ prefix):
- *   /topic/protonest/{deviceId}/stream/fleetMS/...
- *   /topic/protonest/{deviceId}/state/fleetMS/...
- *
- * Robot Topics (STOMP):
- *   /topic/protonest/{deviceId}/stream/fleetMS/robots/{robotId}/location
- *   /topic/protonest/{deviceId}/stream/fleetMS/robots/{robotId}/temperature
- *   /topic/protonest/{deviceId}/stream/fleetMS/robots/{robotId}/status
- *   /topic/protonest/{deviceId}/stream/fleetMS/robots/{robotId}/tasks
- *   /topic/protonest/{deviceId}/state/fleetMS/robots/{robotId}/tasks
- *   /topic/protonest/{deviceId}/stream/fleetMS/robots/{robotId}/battery
+ * 1. Get JWT token from /get-token API (encodedToken)
+ * 2. Connect to WebSocket: wss://api.protonestconnect.co/ws?token=<encodedToken>
+ * 3. Subscribe to topics:
+ *    - /topic/state/<deviceId>   - for state updates
+ *    - /topic/stream/<deviceId>  - for stream data
  * ─────────────────────────────────────────────────────────────────
  */
 
@@ -34,37 +22,64 @@ import { getToken } from "./authService";
 
 const WS_URL = import.meta.env.VITE_WS_URL;
 
-// Topic patterns for Fleet Management System
-// STOMP format: /topic/protonest/{deviceId}/{stream|state}/fleetMS/{suffix}
+// Normalize incoming message payloads and ensure timestamp/deviceId
+function normalizeMessageData(raw, deviceIdHint = null) {
+  try {
+    const data = typeof raw === "string" ? JSON.parse(raw) : { ...raw };
+    if (!data.timestamp) {
+      data.timestamp = new Date().toISOString();
+    }
+    if (!data.deviceId && deviceIdHint) {
+      data.deviceId = deviceIdHint;
+    }
+    return data;
+  } catch (_) {
+    return {
+      deviceId: deviceIdHint || null,
+      timestamp: new Date().toISOString(),
+      payload: raw,
+    };
+  }
+}
+
+/**
+ * Topic patterns for Fleet Management System
+ * 
+ * After WebSocket connection with JWT token (encodedToken from /get-token API):
+ * - Subscribe to "state/<deviceId>" for state updates
+ * - Subscribe to "stream/<deviceId>" for stream data
+ * 
+ * Note: Topics do NOT include /topic/ prefix - the STOMP broker handles routing
+ */
 export const TOPICS = {
-  // Device-level topics (STOMP format)
-  DEVICE_TEMP: (deviceId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/temperature`,
-  DEVICE_AC: (deviceId) => `/topic/protonest/${deviceId}/state/fleetMS/ac`,
-  DEVICE_STATUS: (deviceId) =>
-    `/topic/protonest/${deviceId}/state/fleetMS/status`,
-  DEVICE_AIR: (deviceId) =>
-    `/topic/protonest/${deviceId}/state/fleetMS/airPurifier`,
-  DEVICE_ROBOTS: (deviceId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots`,
+  // Primary device topics (as per API specification)
+  STATE: (deviceId) => `state/${deviceId}`,
+  STREAM: (deviceId) => `stream/${deviceId}`,
 
-  // Robot-level topics (STOMP format)
+  // Legacy aliases for backward compatibility
+  DEVICE_TEMP: (deviceId) => `stream/${deviceId}`,
+  DEVICE_AC: (deviceId) => `state/${deviceId}`,
+  DEVICE_STATUS: (deviceId) => `state/${deviceId}`,
+  DEVICE_AIR: (deviceId) => `state/${deviceId}`,
+  DEVICE_ROBOTS: (deviceId) => `stream/${deviceId}`,
+
+  // Robot-level topics (under device stream)
   ROBOT_LOCATION: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots/${robotId}/location`,
+    `stream/${deviceId}/robots/${robotId}/location`,
   ROBOT_TEMP: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots/${robotId}/temperature`,
+    `stream/${deviceId}/robots/${robotId}/temperature`,
   ROBOT_STATUS: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots/${robotId}/status`,
+    `stream/${deviceId}/robots/${robotId}/status`,
   ROBOT_TASKS: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots/${robotId}/tasks`,
+    `stream/${deviceId}/robots/${robotId}/tasks`,
   ROBOT_TASK_UPDATE: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/state/fleetMS/robots/${robotId}/tasks`,
+    `state/${deviceId}/robots/${robotId}/tasks`,
   ROBOT_BATTERY: (deviceId, robotId) =>
-    `/topic/protonest/${deviceId}/stream/fleetMS/robots/${robotId}/battery`,
+    `stream/${deviceId}/robots/${robotId}/battery`,
 
-  // Command destinations (for publishing - raw MQTT format)
+  // Command destinations (for publishing)
   COMMAND: (deviceId, commandType) =>
-    `protonest/${deviceId}/state/fleetMS/${commandType}`,
+    `state/${deviceId}/${commandType}`,
 };
 
 // Helper to convert STOMP topic to raw MQTT format (for display)
@@ -78,6 +93,8 @@ class WebSocketClient {
     this.isConnected = false;
     this.subscriptions = new Map();
     this.messageCallbacks = new Map();
+    this.currentDeviceId = null;
+    this.dataCallback = null;
   }
 
   /**
@@ -178,7 +195,7 @@ class WebSocketClient {
 
   /**
    * Subscribe to a specific topic with a callback
-   * @param {string} topic - The MQTT topic to subscribe to
+   * @param {string} topic - The topic to subscribe to
    * @param {function} callback - Callback function receiving parsed JSON payload
    * @returns {string|null} - Subscription key or null if failed
    */
@@ -200,25 +217,32 @@ class WebSocketClient {
 
     console.log("📡 SUBSCRIBING to:", topic);
 
-    const subscription = this.client.subscribe(topic, (message) => {
-      const bodyPreview = message.body?.substring(0, 100) || "";
-      console.log(
-        "📥 MESSAGE from",
-        topic + ":",
-        bodyPreview + (message.body?.length > 100 ? "..." : "")
-      );
+    // Generate a unique subscription ID
+    const subscriptionId = `sub-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      const cb = this.messageCallbacks.get(topic);
-      if (cb) {
-        try {
-          const data = JSON.parse(message.body);
-          cb(data);
-        } catch (e) {
-          // If not JSON, pass raw body
-          cb(message.body);
+    const subscription = this.client.subscribe(
+      topic,
+      (message) => {
+        const bodyPreview = message.body?.substring(0, 100) || "";
+        console.log(
+          "📥 MESSAGE from",
+          topic + ":",
+          bodyPreview + (message.body?.length > 100 ? "..." : "")
+        );
+
+        const cb = this.messageCallbacks.get(topic);
+        if (cb) {
+          try {
+            const data = JSON.parse(message.body);
+            cb(data);
+          } catch (e) {
+            // If not JSON, pass raw body
+            cb(message.body);
+          }
         }
-      }
-    });
+      },
+      { id: subscriptionId } // Add subscription ID header
+    );
 
     this.subscriptions.set(topic, subscription);
     if (callback) {
@@ -252,22 +276,23 @@ class WebSocketClient {
    * Subscribe to a device's MQTT topics (legacy method for compatibility)
    */
   subscribeToDevice(deviceId, callback) {
+    // If switching devices, clean up previous subscriptions
+    if (this.currentDeviceId && this.currentDeviceId !== deviceId) {
+      console.log(
+        `[WebSocketClient] 🔄 Switching from ${this.currentDeviceId} to ${deviceId}`
+      );
+      this._unsubscribeFromDeviceTopics(this.currentDeviceId);
+    }
+
+    this.currentDeviceId = deviceId;
+    this.dataCallback = callback;
+
     if (!this.client || !this.isConnected) {
       console.warn("⚠️ Cannot subscribe - not connected");
       return;
     }
 
-    // Subscribe to STREAM topic
-    const streamTopic = TOPICS.DEVICE_STREAM(deviceId);
-    this.subscribe(streamTopic, (data) => {
-      if (callback) callback({ type: "stream", deviceId, data });
-    });
-
-    // Subscribe to STATE topic
-    const stateTopic = TOPICS.DEVICE_STATE(deviceId);
-    this.subscribe(stateTopic, (data) => {
-      if (callback) callback({ type: "state", deviceId, data });
-    });
+    this._subscribeToDeviceTopics(deviceId);
 
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("📡 DEVICE SUBSCRIPTIONS ACTIVE for:", deviceId);
@@ -279,13 +304,104 @@ class WebSocketClient {
    * Unsubscribe from a device (legacy method)
    */
   unsubscribeFromDevice(deviceId) {
-    const streamTopic = TOPICS.DEVICE_STREAM(deviceId);
-    const stateTopic = TOPICS.DEVICE_STATE(deviceId);
-
-    this.unsubscribe(streamTopic);
-    this.unsubscribe(stateTopic);
-
+    this._unsubscribeFromDeviceTopics(deviceId);
     console.log("🔕 Unsubscribed from device:", deviceId);
+  }
+
+  _subscribeToDeviceTopics(deviceId) {
+    const self = this;
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`📡 Subscribing to device topics for: ${deviceId}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    // 1) Subscribe to /topic/stream/<deviceId> - for sensor/stream data
+    const streamTopic = TOPICS.STREAM(deviceId);
+    if (!this.subscriptions.has(streamTopic)) {
+      const sub = this.client.subscribe(streamTopic, (message) => {
+        try {
+          const rawData = JSON.parse(message.body);
+          const data = normalizeMessageData(rawData, deviceId);
+          console.log(`📡 [STREAM] ${streamTopic}:`, data);
+
+          if (self.dataCallback && typeof data === "object") {
+            // Handle stream data - extract all fields
+            Object.keys(data).forEach((key) => {
+              if (key !== "timestamp" && key !== "deviceId") {
+                let value = data[key];
+                // Convert string numbers to actual numbers
+                if (typeof value === "string" && !isNaN(Number(value))) {
+                  value = Number(value);
+                }
+                self.dataCallback({
+                  sensorType: key,
+                  value,
+                  timestamp: data.timestamp,
+                  source: "stream",
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.error(`❌ Error parsing stream message:`, err, message.body);
+        }
+      });
+      this.subscriptions.set(streamTopic, sub);
+      console.log(`✅ Subscribed to: ${streamTopic}`);
+    }
+
+    // 2) Subscribe to /topic/state/<deviceId> - for state/control data
+    const stateTopic = TOPICS.STATE(deviceId);
+    if (!this.subscriptions.has(stateTopic)) {
+      const sub = this.client.subscribe(stateTopic, (message) => {
+        try {
+          const rawData = JSON.parse(message.body);
+          const data = normalizeMessageData(rawData, deviceId);
+          console.log(`📡 [STATE] ${stateTopic}:`, data);
+
+          if (self.dataCallback && typeof data === "object") {
+            // Handle state data - extract all fields
+            Object.keys(data).forEach((key) => {
+              if (key !== "timestamp" && key !== "deviceId") {
+                self.dataCallback({
+                  sensorType: key,
+                  value: data[key],
+                  timestamp: data.timestamp,
+                  source: "state",
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.error(`❌ Error parsing state message:`, err, message.body);
+        }
+      });
+      this.subscriptions.set(stateTopic, sub);
+      console.log(`✅ Subscribed to: ${stateTopic}`);
+    }
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`✅ Device ${deviceId} subscriptions active`);
+    console.log(`   - ${streamTopic}`);
+    console.log(`   - ${stateTopic}`);
+    console.log(`📊 Total subscriptions: ${this.subscriptions.size}`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  }
+
+  _unsubscribeFromDeviceTopics(deviceId) {
+    const keysToRemove = [];
+    this.subscriptions.forEach((sub, topic) => {
+      if (topic.includes(`/${deviceId}`) || topic.endsWith(`${deviceId}`)) {
+        try {
+          sub.unsubscribe();
+          console.log(`🔕 Unsubscribed from ${topic}`);
+        } catch (err) {
+          console.warn(`⚠️ Error unsubscribing from ${topic}:`, err);
+        }
+        keysToRemove.push(topic);
+      }
+    });
+    keysToRemove.forEach((t) => this.subscriptions.delete(t));
   }
 
   /**
@@ -351,35 +467,27 @@ class WebSocketClient {
   }
 
   /**
-   * Print MQTT topics reference
+   * Print topics reference
    */
   static printTopicsReference() {
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("📚 MQTT TOPICS REFERENCE");
+    console.log("📚 WEBSOCKET TOPICS REFERENCE");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("");
-    console.log("DEVICE LEVEL (Subscribe):");
-    console.log("  /topic/stream/{deviceId}           - Live telemetry stream");
-    console.log("  /topic/state/{deviceId}            - Device state & alerts");
+    console.log("CONNECTION:");
+    console.log("  URL: wss://api.protonestconnect.co/ws?token=<encodedToken>");
+    console.log("  Token: JWT from /get-token API");
     console.log("");
-    console.log("ROBOT LEVEL (Subscribe):");
-    console.log(
-      "  /topic/stream/{deviceId}/robots/{robotId}/location - GPS (10Hz)"
-    );
-    console.log(
-      "  /topic/stream/{deviceId}/robots/{robotId}/env      - Environment (1Hz)"
-    );
-    console.log(
-      "  /topic/stream/{deviceId}/robots/{robotId}/status   - Battery/State"
-    );
-    console.log(
-      "  /topic/stream/{deviceId}/robots/{robotId}/tasks    - Task assignments"
-    );
+    console.log("DEVICE TOPICS (Subscribe after connection):");
+    console.log("  /topic/state/<deviceId>   - Device state updates");
+    console.log("  /topic/stream/<deviceId>  - Device stream data");
     console.log("");
-    console.log("COMMANDS (Publish):");
-    console.log(
-      "  protonest/{deviceId}/state/{commandType}           - Send commands"
-    );
+    console.log("ROBOT TOPICS:");
+    console.log("  /topic/stream/<deviceId>/robots/<robotId>/location");
+    console.log("  /topic/stream/<deviceId>/robots/<robotId>/temperature");
+    console.log("  /topic/stream/<deviceId>/robots/<robotId>/status");
+    console.log("  /topic/stream/<deviceId>/robots/<robotId>/tasks");
+    console.log("  /topic/stream/<deviceId>/robots/<robotId>/battery");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   }
 }

@@ -36,55 +36,84 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
     };
 
     return (
-        <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-            {/* User Profile */}
-            <div className="sidebar-user">
-                <div className="sidebar-user-avatar">
-                    <User size={20} />
+        <>
+            {/* Mobile Backdrop Overlay */}
+            {isOpen && (
+                <div
+                    className="sidebar-backdrop"
+                    onClick={onClose}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        zIndex: 40,
+                        display: 'none',
+                        opacity: isOpen ? 1 : 0,
+                        transition: 'opacity 0.3s ease',
+                        pointerEvents: isOpen ? 'auto' : 'none'
+                    }}
+                />
+            )}
+
+            <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+                {/* User Profile */}
+                <div className="sidebar-user">
+                    <div className="sidebar-user-avatar">
+                        <User size={20} />
+                    </div>
+                    <div className="sidebar-user-info">
+                        <h4>WELCOME!</h4>
+                        <p>USER1233</p>
+                    </div>
                 </div>
-                <div className="sidebar-user-info">
-                    <h4>WELCOME!</h4>
-                    <p>USER1233</p>
+
+                {/* Navigation */}
+                <nav className="sidebar-nav">
+                    {navItems.map(item => {
+                        const Icon = item.icon;
+                        const isActive = activeTab === item.id;
+
+                        return (
+                            <button
+                                key={item.id}
+                                onClick={() => {
+                                    setActiveTab(item.id);
+                                    onClose();
+                                }}
+                                className={`nav-item ${isActive ? 'active' : ''}`}
+                            >
+                                <Icon size={20} />
+                                <span>{item.label}</span>
+                            </button>
+                        );
+                    })}
+                </nav>
+
+                {/* Emergency Stop Section */}
+                <div className="emergency-section">
+                    <p className="emergency-warning">
+                        Stops all active machinery immediately. Use only in EMERGENCIES
+                    </p>
+                    <button
+                        onClick={handleEmergencyStop}
+                        disabled={isEmergencyLoading}
+                        className="emergency-btn"
+                    >
+                        <StopCircle size={18} />
+                        {isEmergencyLoading ? 'STOPPING...' : 'EMERGENCY STOP'}
+                    </button>
                 </div>
-            </div>
+            </aside>
 
-            {/* Navigation */}
-            <nav className="sidebar-nav">
-                {navItems.map(item => {
-                    const Icon = item.icon;
-                    const isActive = activeTab === item.id;
-
-                    return (
-                        <button
-                            key={item.id}
-                            onClick={() => {
-                                setActiveTab(item.id);
-                                onClose();
-                            }}
-                            className={`nav-item ${isActive ? 'active' : ''}`}
-                        >
-                            <Icon size={20} />
-                            <span>{item.label}</span>
-                        </button>
-                    );
-                })}
-            </nav>
-
-            {/* Emergency Stop Section */}
-            <div className="emergency-section">
-                <p className="emergency-warning">
-                    Stops all active machinery immediately. Use only in EMERGENCIES
-                </p>
-                <button
-                    onClick={handleEmergencyStop}
-                    disabled={isEmergencyLoading}
-                    className="emergency-btn"
-                >
-                    <StopCircle size={18} />
-                    {isEmergencyLoading ? 'STOPPING...' : 'EMERGENCY STOP'}
-                </button>
-            </div>
-        </aside>
+            {/* Mobile backdrop show */}
+            <style>{`
+                @media (max-width: 1024px) {
+                    .sidebar-backdrop {
+                        display: block !important;
+                    }
+                }
+            `}</style>
+        </>
     );
 }
 

@@ -1,10 +1,10 @@
 import React from 'react';
-import { Wifi, Radio, Server, Bell, Cpu, Menu } from 'lucide-react';
+import { Wifi, Radio, Server, Bell, Cpu, Menu, X } from 'lucide-react';
 import { useStomp } from '../../contexts/StompContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDevice } from '../../contexts/DeviceContext';
 
-function Header({ onMenuToggle }) {
+function Header({ onMenuToggle, sidebarOpen }) {
     const { isConnected: stompConnected } = useStomp();
     const { isAuthenticated } = useAuth();
     const { devices, selectedDeviceId, setSelectedDeviceId, alerts } = useDevice();
@@ -13,11 +13,11 @@ function Header({ onMenuToggle }) {
 
     return (
         <header className="header">
-            {/* Mobile Menu Button - Only visible on small screens */}
+            {/* Mobile Menu Button - Hamburger/Close icon */}
             <button
                 className="header-menu-btn"
                 onClick={onMenuToggle}
-                aria-label="Open menu"
+                aria-label={sidebarOpen ? "Close menu" : "Open menu"}
                 style={{
                     display: 'none',
                     alignItems: 'center',
@@ -29,11 +29,13 @@ function Header({ onMenuToggle }) {
                     borderRadius: '8px',
                     cursor: 'pointer',
                     color: 'white',
-                    marginRight: '12px',
-                    transition: 'background 0.2s'
+                    marginRight: '8px',
+                    transition: 'background 0.2s',
+                    flexShrink: 0,
+                    padding: 0
                 }}
             >
-                <Menu size={24} />
+                {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
 
             {/* Left - Logo */}
@@ -45,7 +47,7 @@ function Header({ onMenuToggle }) {
             </div>
 
             {/* Center - Device Selector */}
-            <div className="flex items-center">
+            <div className="flex items-center flex-1 md:flex-none">
                 <select
                     value={selectedDeviceId}
                     onChange={(e) => setSelectedDeviceId(e.target.value)}
@@ -92,21 +94,39 @@ function Header({ onMenuToggle }) {
 
             {/* Mobile styles */}
             <style>{`
-                @media (max-width: 768px) {
+                @media (max-width: 1024px) {
                     .header-menu-btn {
                         display: flex !important;
                     }
+                }
+                
+                @media (max-width: 768px) {
                     .header-logo {
                         display: none;
                     }
+                    
                     .header-device-selector {
                         max-width: 150px;
                         font-size: 14px;
                     }
-                    .header-icons .header-icon:not(:last-child) {
+                    
+                    .header-icons .header-icon:nth-child(1),
+                    .header-icons .header-icon:nth-child(2) {
                         display: none;
                     }
+                    
                     .header-icons .w-px {
+                        display: none;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .header-device-selector {
+                        max-width: 100px;
+                        font-size: 12px;
+                    }
+                    
+                    .header-icons .header-icon:nth-child(3) {
                         display: none;
                     }
                 }

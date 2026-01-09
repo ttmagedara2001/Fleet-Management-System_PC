@@ -244,7 +244,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <Header onMenuToggle={() => setSidebarOpen(true)} />
+      <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}

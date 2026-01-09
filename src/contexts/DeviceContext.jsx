@@ -7,6 +7,7 @@ const DeviceContext = createContext(null);
 
 // Available devices
 const DEVICES = [
+    { id: 'deviceTestUC', name: 'deviceTestUC', zone: 'Testing' },
     { id: 'device9988', name: 'Device 9988', zone: 'Cleanroom A' },
     { id: 'device0011233', name: 'Device 0011233', zone: 'Cleanroom B' },
     { id: 'deviceA72Q', name: 'Device A72Q', zone: 'Loading Bay' },
@@ -615,50 +616,40 @@ export function DeviceProvider({ children }) {
         console.log('📡 [FleetMS] Device Topic Subscriptions:');
         console.log('────────────────────────────────────────────────────────────');
 
-        // 1. Device Temperature Stream
-        const tempTopic = TOPICS.DEVICE_TEMP(deviceId);
-        console.log('🌡️  Temperature:', toMqttFormat(tempTopic));
-        subscribe(tempTopic, (payload) => {
-            console.log('[FleetMS] 🌡️ Temperature data received:', payload);
-            handleTemperatureUpdate(deviceId, payload);
-        });
-        subscriptionsRef.current.push(tempTopic);
-
-        // 2. Device AC State
-        const acTopic = TOPICS.DEVICE_AC(deviceId);
-        console.log('❄️  AC State:    ', toMqttFormat(acTopic));
-        subscribe(acTopic, (payload) => {
-            console.log('[FleetMS] ❄️ AC update received:', payload);
-            handleACUpdate(deviceId, payload);
-        });
-        subscriptionsRef.current.push(acTopic);
-
-        // 3. Device Status
-        const statusTopic = TOPICS.DEVICE_STATUS(deviceId);
-        console.log('📊 Status:     ', toMqttFormat(statusTopic));
-        subscribe(statusTopic, (payload) => {
-            console.log('[FleetMS] 📊 Status update received:', payload);
+        // Subscribe to the two main topics as per API specification
+        // 1. Stream topic - for temperature, robots discovery, etc.
+        const streamTopic = TOPICS.STREAM(deviceId);
+        console.log('📡 Stream:', toMqttFormat(streamTopic));
+        subscribe(streamTopic, (payload) => {
+            console.log('[FleetMS] 📡 Stream data received:', payload);
+            // Route data based on payload type/content
+            if (payload.ambient_temp !== undefined || payload.temperature !== undefined) {
+                handleTemperatureUpdate(deviceId, payload);
+            }
+            if (payload.robots !== undefined || payload.robotId !== undefined) {
+                handleRobotsDiscovery(deviceId, payload);
+            }
+            // Also update general device data
             handleDeviceStatusUpdate(deviceId, payload);
         });
-        subscriptionsRef.current.push(statusTopic);
+        subscriptionsRef.current.push(streamTopic);
 
-        // 4. Air Purifier State
-        const airTopic = TOPICS.DEVICE_AIR(deviceId);
-        console.log('🌬️  Air Purifier:', toMqttFormat(airTopic));
-        subscribe(airTopic, (payload) => {
-            console.log('[FleetMS] 🌬️ Air purifier update received:', payload);
-            handleAirPurifierUpdate(deviceId, payload);
+        // 2. State topic - for AC, air purifier, device status, etc.
+        const stateTopic = TOPICS.STATE(deviceId);
+        console.log('📊 State: ', toMqttFormat(stateTopic));
+        subscribe(stateTopic, (payload) => {
+            console.log('[FleetMS] 📊 State data received:', payload);
+            // Route data based on payload type/content
+            if (payload.ac_power !== undefined) {
+                handleACUpdate(deviceId, payload);
+            }
+            if (payload.air_purifier !== undefined) {
+                handleAirPurifierUpdate(deviceId, payload);
+            }
+            // Always update device status with state data
+            handleDeviceStatusUpdate(deviceId, payload);
         });
-        subscriptionsRef.current.push(airTopic);
-
-        // 5. Robots Discovery Stream
-        const robotsTopic = TOPICS.DEVICE_ROBOTS(deviceId);
-        console.log('🤖 Robots:      ', toMqttFormat(robotsTopic));
-        subscribe(robotsTopic, (payload) => {
-            console.log('[FleetMS] 🤖 Robots data received:', payload);
-            handleRobotsDiscovery(deviceId, payload);
-        });
-        subscriptionsRef.current.push(robotsTopic);
+        subscriptionsRef.current.push(stateTopic);
 
         console.log('────────────────────────────────────────────────────────────');
         console.log('✅ [FleetMS] Device subscriptions complete!');
