@@ -11,7 +11,6 @@ import {
     Loader2
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
-import { useStomp } from '../contexts/StompContext';
 import { toggleAC, setAirPurifier } from '../services/api';
 
 // Fab Map Component
@@ -124,8 +123,7 @@ function FabMap() {
 
 // Status Card Component
 function StatusCard() {
-    const { currentDeviceData, selectedDeviceId } = useDevice();
-    const { isConnected } = useStomp();
+    const { currentDeviceData, selectedDeviceId, isConnected } = useDevice();
 
     const env = currentDeviceData?.environment || {};
 
@@ -201,10 +199,10 @@ function ControlToggles() {
         try {
             const newState = !acEnabled;
             console.log(`[Dashboard] 🔄 Toggling AC to ${newState ? 'ON' : 'OFF'} for device: ${selectedDeviceId}`);
-            
+
             const result = await toggleAC(selectedDeviceId, newState);
             console.log('[Dashboard] ✅ AC toggle result:', result);
-            
+
             // State will update via WebSocket
         } catch (error) {
             console.error('[Dashboard] ❌ Failed to toggle AC:', error);
@@ -220,10 +218,10 @@ function ControlToggles() {
         try {
             const newMode = airPurifierEnabled ? 'INACTIVE' : 'ACTIVE';
             console.log(`[Dashboard] 🔄 Setting Air Purifier to ${newMode} for device: ${selectedDeviceId}`);
-            
+
             const result = await setAirPurifier(selectedDeviceId, newMode);
             console.log('[Dashboard] ✅ Air purifier result:', result);
-            
+
             // State will update via WebSocket
         } catch (error) {
             console.error('[Dashboard] ❌ Failed to toggle Air Purifier:', error);

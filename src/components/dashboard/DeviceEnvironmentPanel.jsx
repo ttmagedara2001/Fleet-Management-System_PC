@@ -10,7 +10,6 @@ import {
     Activity
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
-import { useStomp } from '../../contexts/StompContext';
 
 function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }) {
     const getStatusColor = () => {
@@ -76,8 +75,7 @@ function StatusCard({ icon: Icon, label, value, isActive }) {
 }
 
 function DeviceEnvironmentPanel() {
-    const { currentDeviceData, currentDevice } = useDevice();
-    const { isConnected, lastMessageTime } = useStomp();
+    const { currentDeviceData, currentDevice, isConnected } = useDevice();
 
     const env = currentDeviceData?.environment || {};
     const state = currentDeviceData?.state || {};
@@ -103,10 +101,6 @@ function DeviceEnvironmentPanel() {
         return 'normal';
     };
 
-    const timeSinceUpdate = lastMessageTime
-        ? Math.floor((Date.now() - lastMessageTime) / 1000)
-        : null;
-
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -121,9 +115,6 @@ function DeviceEnvironmentPanel() {
                     <span className={`status-dot ${isConnected ? 'normal' : 'critical'}`} />
                     <span className="text-sm text-gray-500">
                         {isConnected ? 'Live' : 'Disconnected'}
-                        {timeSinceUpdate !== null && timeSinceUpdate < 60 && (
-                            <span className="ml-1 text-gray-400">({timeSinceUpdate}s ago)</span>
-                        )}
                     </span>
                 </div>
             </div>

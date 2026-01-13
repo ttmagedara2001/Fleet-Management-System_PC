@@ -99,6 +99,16 @@ export async function getStreamData(
   pagination = 0,
   pageSize = 100
 ) {
+  console.log('[API] 📡 POST /get-stream-data/device/topic');
+  console.log('[API] Request payload:', {
+    deviceId,
+    topic,
+    startTime,
+    endTime,
+    pagination: String(pagination),
+    pageSize: String(pageSize)
+  });
+  
   const response = await api.post("/get-stream-data/device/topic", {
     deviceId,
     topic,
@@ -107,6 +117,8 @@ export async function getStreamData(
     pagination: String(pagination), // API requires string
     pageSize: String(pageSize), // API requires string
   });
+  
+  console.log('[API] ✅ /get-stream-data/device/topic response:', response.data.status);
   return response.data;
 }
 
@@ -127,6 +139,15 @@ export async function getAllStreamData(
   pagination = 0,
   pageSize = 100
 ) {
+  console.log('[API] 📡 POST /get-stream-data/device');
+  console.log('[API] Request payload:', {
+    deviceId,
+    startTime,
+    endTime,
+    pagination: String(pagination),
+    pageSize: String(pageSize)
+  });
+  
   const response = await api.post("/get-stream-data/device", {
     deviceId,
     startTime,
@@ -134,6 +155,8 @@ export async function getAllStreamData(
     pagination: String(pagination),
     pageSize: String(pageSize),
   });
+  
+  console.log('[API] ✅ /get-stream-data/device response:', response.data.status);
   return response.data;
 }
 
@@ -170,7 +193,12 @@ export async function getUserStreamData(
  * @param {string} deviceId - Device ID
  */
 export async function getStateDetails(deviceId) {
+  console.log('[API] 📡 POST /get-state-details/device');
+  console.log('[API] Request payload:', { deviceId });
+  
   const response = await api.post("/get-state-details/device", { deviceId });
+  
+  console.log('[API] ✅ /get-state-details/device response:', response.data.status);
   return response.data;
 }
 
@@ -182,10 +210,15 @@ export async function getStateDetails(deviceId) {
  * @param {string} topic - State topic (e.g., 'fleetMS/ac')
  */
 export async function getStateDetailsByTopic(deviceId, topic) {
+  console.log('[API] 📡 POST /get-state-details/device/topic');
+  console.log('[API] Request payload:', { deviceId, topic });
+  
   const response = await api.post("/get-state-details/device/topic", {
     deviceId,
     topic,
   });
+  
+  console.log('[API] ✅ /get-state-details/device/topic response:', response.data.status);
   return response.data;
 }
 

@@ -1,13 +1,11 @@
 import React from 'react';
 import { Wifi, Radio, Server, Bell, Cpu, Menu, X } from 'lucide-react';
-import { useStomp } from '../../contexts/StompContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDevice } from '../../contexts/DeviceContext';
 
 function Header({ onMenuToggle, sidebarOpen }) {
-    const { isConnected: stompConnected } = useStomp();
     const { isAuthenticated } = useAuth();
-    const { devices, selectedDeviceId, setSelectedDeviceId, alerts } = useDevice();
+    const { devices, selectedDeviceId, setSelectedDeviceId, alerts, isConnected } = useDevice();
 
     const unreadAlerts = alerts.filter(a => !a.read).length;
 
@@ -72,10 +70,10 @@ function Header({ onMenuToggle, sidebarOpen }) {
 
             {/* Right - Icons */}
             <div className="header-icons">
-                <div className={`header-icon ${stompConnected ? 'active' : ''}`} title="WebSocket">
+                <div className={`header-icon ${isConnected ? 'active' : ''}`} title="WebSocket">
                     <Wifi size={18} />
                 </div>
-                <div className={`header-icon ${stompConnected ? 'active' : ''}`} title="MQTT">
+                <div className={`header-icon ${isConnected ? 'active' : ''}`} title="MQTT">
                     <Radio size={18} />
                 </div>
                 <div className={`header-icon ${isAuthenticated ? 'active' : ''}`} title="Server">

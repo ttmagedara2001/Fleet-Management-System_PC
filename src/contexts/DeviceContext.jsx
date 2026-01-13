@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useStomp } from './StompContext';
-import { TOPICS, toMqttFormat } from '../services/webSocketClient';
-import { getStateDetails } from '../services/api';
+import { useAuth } from './AuthContext';
+import { webSocketClient, TOPICS, toMqttFormat } from '../services/webSocketClient';
 
 const DeviceContext = createContext(null);
 
@@ -55,7 +54,87 @@ const getThresholds = () => {
 };
 
 export function DeviceProvider({ children }) {
-    const { isConnected, subscribe, unsubscribe } = useStomp();
+    const { token, isAuthenticated } = useAuth();
+    const [isConnected, setIsConnected] = useState(false);
+    const [connectionError, setConnectionError] = useState(null);
+    const connectionAttempted = useRef(false);
+
+    // WebSocket connection management
+    useEffect(() => {
+        let mounted = true;
+
+        async function connectWebSocket() {
+            if (!isAuthenticated || !token) {
+                console.log('[DeviceContext] ⏳ Waiting for authentication...');
+                return;
+            }
+
+            if (connectionAttempted.current && webSocketClient.connected) {
+                console.log('[DeviceContext] ✅ Already connected');
+                setIsConnected(true);
+                return;
+            }
+
+            console.log('[DeviceContext] 🔗 Initiating WebSocket connection...');
+            connectionAttempted.current = true;
+            setConnectionError(null);
+
+            try {
+                await webSocketClient.connect(token);
+
+                if (mounted) {
+                    setIsConnected(true);
+                    setConnectionError(null);
+                    console.log('[DeviceContext] ✅ WebSocket connection established!');
+                }
+            } catch (err) {
+                console.error('[DeviceContext] ❌ WebSocket connection failed:', err.message);
+                if (mounted) {
+                    setIsConnected(false);
+                    setConnectionError(err.message);
+                }
+            }
+        }
+
+        connectWebSocket();
+
+        return () => {
+            mounted = false;
+        };
+    }, [isAuthenticated, token]);
+
+    // Update connection status periodically
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const currentStatus = webSocketClient.connected;
+            setIsConnected(currentStatus);
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (webSocketClient.connected) {
+                console.log('[DeviceContext] 🔌 Cleaning up WebSocket connection');
+                webSocketClient.disconnect();
+            }
+        };
+    }, []);
+
+    // Subscribe/unsubscribe wrappers
+    const subscribe = useCallback((topic, callback) => {
+        if (!webSocketClient.connected) {
+            console.warn('[DeviceContext] ⚠️ Cannot subscribe - not connected. Topic:', topic);
+            return null;
+        }
+        return webSocketClient.subscribe(topic, callback);
+    }, []);
+
+    const unsubscribe = useCallback((topic) => {
+        webSocketClient.unsubscribe(topic);
+    }, []);
 
     // Load persisted state from localStorage
     const [selectedDeviceId, setSelectedDeviceId] = useState(() => {
@@ -168,10 +247,10 @@ export function DeviceProvider({ children }) {
 
             try {
                 const response = await getStateDetails(selectedDeviceId);
-                
+
                 if (response.status === 'Success' && response.data) {
                     console.log('[Device] ✅ Initial state received:', response.data);
-                    
+
                     // Update device state with API data
                     setDeviceData(prev => ({
                         ...prev,
@@ -383,9 +462,9 @@ export function DeviceProvider({ children }) {
         console.log('[Device] 🤖 Robots discovery for', deviceId, ':', payload);
 
         // Payload could be array of robot IDs or object with robots array
-        const robotIds = Array.isArray(payload) ? payload : 
-                         (payload.robots ? payload.robots : 
-                         (payload.robotIds ? payload.robotIds : []));
+        const robotIds = Array.isArray(payload) ? payload :
+            (payload.robots ? payload.robots :
+                (payload.robotIds ? payload.robotIds : []));
 
         robotIds.forEach(robotId => {
             const id = typeof robotId === 'string' ? robotId : robotId.id || robotId.robotId;
@@ -613,46 +692,90 @@ export function DeviceProvider({ children }) {
         console.log('📍 Zone:', device?.zone || 'Unknown');
         console.log('════════════════════════════════════════════════════════════');
         console.log('');
-        console.log('📡 [FleetMS] Device Topic Subscriptions:');
+        console.log('📡 [FleetMS] Device Topic Subscriptions (2 topics only):');
         console.log('────────────────────────────────────────────────────────────');
 
-        // Subscribe to the two main topics as per API specification
-        // 1. Stream topic - for temperature, robots discovery, etc.
-        const streamTopic = TOPICS.STREAM(deviceId);
-        console.log('📡 Stream:', toMqttFormat(streamTopic));
-        subscribe(streamTopic, (payload) => {
+        // Helper function to route incoming data based on payload structure
+        const routeStreamData = (payload) => {
             console.log('[FleetMS] 📡 Stream data received:', payload);
-            // Route data based on payload type/content
+
+            // Check for device-level data
             if (payload.ambient_temp !== undefined || payload.temperature !== undefined) {
                 handleTemperatureUpdate(deviceId, payload);
             }
+
+            // Check for robot discovery
             if (payload.robots !== undefined || payload.robotId !== undefined) {
                 handleRobotsDiscovery(deviceId, payload);
             }
-            // Also update general device data
-            handleDeviceStatusUpdate(deviceId, payload);
-        });
-        subscriptionsRef.current.push(streamTopic);
 
-        // 2. State topic - for AC, air purifier, device status, etc.
-        const stateTopic = TOPICS.STATE(deviceId);
-        console.log('📊 State: ', toMqttFormat(stateTopic));
-        subscribe(stateTopic, (payload) => {
+            // Check for robot-specific data (when topic path includes robot ID in payload or topic metadata)
+            // Robot location data: { robotId, lat, lng, z, heading }
+            if (payload.robotId && (payload.lat !== undefined || payload.location !== undefined)) {
+                handleRobotLocationUpdate(deviceId, payload.robotId, payload.location || payload);
+            }
+
+            // Robot temperature: { robotId, temperature }
+            if (payload.robotId && payload.temperature !== undefined && !payload.ambient_temp) {
+                handleRobotTempUpdate(deviceId, payload.robotId, payload);
+            }
+
+            // Robot status: { robotId, status, load, state }
+            if (payload.robotId && (payload.status !== undefined || payload.state !== undefined)) {
+                handleRobotStatusUpdate(deviceId, payload.robotId, payload);
+            }
+
+            // Robot battery: { robotId, battery, level }
+            if (payload.robotId && (payload.battery !== undefined || payload.level !== undefined)) {
+                handleRobotBatteryUpdate(deviceId, payload.robotId, payload);
+            }
+
+            // Robot tasks: { robotId, task, tasks }
+            if (payload.robotId && (payload.task !== undefined || payload.tasks !== undefined)) {
+                handleRobotTaskUpdate(deviceId, payload.robotId, payload);
+            }
+
+            // Also update general device data for any stream message
+            handleDeviceStatusUpdate(deviceId, payload);
+        };
+
+        const routeStateData = (payload) => {
             console.log('[FleetMS] 📊 State data received:', payload);
-            // Route data based on payload type/content
-            if (payload.ac_power !== undefined) {
+
+            // Check for device control states
+            if (payload.ac_power !== undefined || payload.ac !== undefined) {
                 handleACUpdate(deviceId, payload);
             }
-            if (payload.air_purifier !== undefined) {
+
+            if (payload.air_purifier !== undefined || payload.airPurifier !== undefined) {
                 handleAirPurifierUpdate(deviceId, payload);
             }
+
+            // Check for robot state updates (task assignments, etc.)
+            if (payload.robotId && payload.task !== undefined) {
+                handleRobotTaskUpdate(deviceId, payload.robotId, payload);
+            }
+
             // Always update device status with state data
             handleDeviceStatusUpdate(deviceId, payload);
-        });
+        };
+
+        // Subscribe to the two main topics ONLY
+        // 1. Stream topic - for temperature, robots discovery, robot telemetry, etc.
+        const streamTopic = TOPICS.STREAM(deviceId);
+        console.log('📡 Stream:', toMqttFormat(streamTopic));
+        subscribe(streamTopic, routeStreamData);
+        subscriptionsRef.current.push(streamTopic);
+
+        // 2. State topic - for AC, air purifier, device status, robot commands, etc.
+        const stateTopic = TOPICS.STATE(deviceId);
+        console.log('📊 State: ', toMqttFormat(stateTopic));
+        subscribe(stateTopic, routeStateData);
         subscriptionsRef.current.push(stateTopic);
 
         console.log('────────────────────────────────────────────────────────────');
-        console.log('✅ [FleetMS] Device subscriptions complete!');
+        console.log('✅ [FleetMS] Device subscriptions complete! (2 topics)');
+        console.log('   All robot data will be routed through these topics');
         console.log('');
 
         return () => {
@@ -665,84 +788,9 @@ export function DeviceProvider({ children }) {
             console.log('✅ [FleetMS] Cleanup complete');
             console.log('');
         };
-    }, [isConnected, selectedDeviceId, subscribe, unsubscribe, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery]);
+    }, [isConnected, selectedDeviceId, subscribe, unsubscribe, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate]);
 
-    // Subscribe to robot streams when robots are discovered for SELECTED device
-    useEffect(() => {
-        if (!isConnected) return;
-
-        const deviceId = selectedDeviceId;
-        const deviceRobots = robots[deviceId] || {};
-        const robotIds = Object.keys(deviceRobots);
-
-        if (robotIds.length === 0) return;
-
-        robotIds.forEach(robotId => {
-            // Check if already subscribed using TOPICS pattern
-            const locationTopic = TOPICS.ROBOT_LOCATION(deviceId, robotId);
-            if (subscriptionsRef.current.includes(locationTopic)) return;
-
-            console.log('');
-            console.log('════════════════════════════════════════════════════════════');
-            console.log('🤖 [FleetMS] NEW ROBOT DISCOVERED:', robotId);
-            console.log('🔗 Parent Device:', deviceId);
-            console.log('════════════════════════════════════════════════════════════');
-            console.log('');
-            console.log('📡 [FleetMS] Robot Topic Subscriptions:');
-            console.log('────────────────────────────────────────────────────────────');
-
-            // Location
-            console.log('📍 Location:   ', toMqttFormat(locationTopic));
-            subscribe(locationTopic, (payload) => {
-                handleRobotLocationUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(locationTopic);
-
-            // Temperature
-            const tempTopic = TOPICS.ROBOT_TEMP(deviceId, robotId);
-            console.log('🌡️  Temperature:', toMqttFormat(tempTopic));
-            subscribe(tempTopic, (payload) => {
-                handleRobotTempUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(tempTopic);
-
-            // Status
-            const statusTopic = TOPICS.ROBOT_STATUS(deviceId, robotId);
-            console.log('📊 Status:     ', toMqttFormat(statusTopic));
-            subscribe(statusTopic, (payload) => {
-                handleRobotStatusUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(statusTopic);
-
-            // Battery
-            const batteryTopic = TOPICS.ROBOT_BATTERY(deviceId, robotId);
-            console.log('🔋 Battery:    ', toMqttFormat(batteryTopic));
-            subscribe(batteryTopic, (payload) => {
-                handleRobotBatteryUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(batteryTopic);
-
-            // Tasks (stream)
-            const taskTopic = TOPICS.ROBOT_TASKS(deviceId, robotId);
-            console.log('📋 Tasks:      ', toMqttFormat(taskTopic));
-            subscribe(taskTopic, (payload) => {
-                handleRobotTaskUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(taskTopic);
-
-            // Task updates (state)
-            const taskUpdateTopic = TOPICS.ROBOT_TASK_UPDATE(deviceId, robotId);
-            console.log('📋 Task Update:', toMqttFormat(taskUpdateTopic));
-            subscribe(taskUpdateTopic, (payload) => {
-                handleRobotTaskUpdate(deviceId, robotId, payload);
-            });
-            subscriptionsRef.current.push(taskUpdateTopic);
-
-            console.log('────────────────────────────────────────────────────────────');
-            console.log('✅ [FleetMS] Robot subscriptions complete for:', robotId);
-            console.log('');
-        });
-    }, [isConnected, selectedDeviceId, robots, subscribe, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate]);
+    // Note: Robot subscriptions removed - all data comes through main STREAM/STATE topics
 
     // Robots are discovered via WebSocket - no mock data
 
@@ -751,10 +799,10 @@ export function DeviceProvider({ children }) {
         if (!selectedDeviceId) return;
 
         console.log(`[Device] 🔄 Refreshing state for device: ${selectedDeviceId}`);
-        
+
         try {
             const response = await getStateDetails(selectedDeviceId);
-            
+
             if (response.status === 'Success' && response.data) {
                 setDeviceData(prev => ({
                     ...prev,
@@ -778,6 +826,11 @@ export function DeviceProvider({ children }) {
     }, [selectedDeviceId]);
 
     const value = {
+        // WebSocket connection state
+        isConnected,
+        connectionError,
+
+        // Device management
         devices: DEVICES,
         selectedDeviceId,
         setSelectedDeviceId,
@@ -786,10 +839,14 @@ export function DeviceProvider({ children }) {
         currentRobots,
         deviceData,
         robots,
+
+        // Alerts
         alerts,
         addAlert,
         clearAlert,
         clearAllAlerts,
+
+        // Robot management
         registerRobot,
         refreshDeviceState
     };

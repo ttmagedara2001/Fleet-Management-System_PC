@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
-import { StompProvider } from './contexts/StompContext';
 import { DeviceProvider } from './contexts/DeviceContext';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -264,11 +263,9 @@ function App() {
 
   return (
     <AuthProvider>
-      <StompProvider>
-        <DeviceProvider>
-          <AppContent />
-        </DeviceProvider>
-      </StompProvider>
+      <DeviceProvider>
+        <AppContent />
+      </DeviceProvider>
     </AuthProvider>
   );
 }

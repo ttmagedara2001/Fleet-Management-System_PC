@@ -22,7 +22,7 @@ import {
     Legend
 } from 'recharts';
 import { useDevice } from '../contexts/DeviceContext';
-import { getAllStreamData, getTimeRange } from '../services/api';
+import { getAllStreamData, getStreamData, getTimeRange } from '../services/api';
 
 // Get task history from robots context
 const generateTaskHistory = (robots) => {
@@ -37,13 +37,13 @@ const generateTaskHistory = (robots) => {
             });
         }
     });
-    
+
     // If no real tasks, return empty array
     return tasks;
 };
 
 function Analysis() {
-    const { selectedDeviceId, currentRobots } = useDevice();
+    const { selectedDeviceId } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -51,21 +51,93 @@ function Analysis() {
     const [interval, setInterval] = useState('5 Seconds');
     const [chartData, setChartData] = useState([]);
     const [dataSource, setDataSource] = useState('loading'); // 'api', 'empty', 'loading', 'error'
+    const [robotData, setRobotData] = useState([]); // HTTP fetched robot data
     const [activeMetrics, setActiveMetrics] = useState({
         temp: true,
         humidity: true,
         battery: true
     });
 
+    // Fetch robot data from HTTP
+    const fetchRobotData = useCallback(async () => {
+        console.log('[Analysis] 🤖 Fetching robot data from fleetMS/robots');
+
+        try {
+            const { startTime, endTime } = getTimeRange(timeRange);
+
+            const response = await getStreamData(
+                selectedDeviceId,
+                'fleetMS/robots',
+                startTime,
+                endTime,
+                0,
+                100
+            );
+
+            console.log('[Analysis] 📥 Robot HTTP Response:');
+            console.log('   Status:', response.status);
+            console.log('   Data Length:', response.data?.length || 0);
+
+            if (response.status === 'Success' && response.data && response.data.length > 0) {
+                // Parse robot data
+                const robots = response.data.map(record => {
+                    try {
+                        const payload = JSON.parse(record.payload || '{}');
+                        return {
+                            robotId: payload.robotId || payload.id || 'Unknown',
+                            taskId: payload.taskId || payload.task?.taskId || '-',
+                            taskName: payload.taskName || payload.task?.type || 'No Task',
+                            status: payload.status || payload.task?.status || 'Idle',
+                            timestamp: record.timestamp
+                        };
+                    } catch (parseError) {
+                        console.warn('[Analysis] Failed to parse robot record:', record);
+                        return null;
+                    }
+                }).filter(r => r !== null);
+
+                setRobotData(robots);
+                console.log('[Analysis] ✅ Robot data updated:', robots.length, 'robots');
+            } else {
+                setRobotData([]);
+                console.log('[Analysis] ℹ️ No robot data available');
+            }
+        } catch (err) {
+            console.error('[Analysis] ❌ Robot data fetch error:', err);
+            setRobotData([]);
+        }
+    }, [selectedDeviceId, timeRange]);
+
     // Fetch data from API
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         setError(null);
-        console.log(`[Analysis] 📊 Fetching data for device: ${selectedDeviceId}, range: ${timeRange}`);
+
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('[Analysis] 📊 FETCHING HISTORICAL DATA FOR CHART');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('[Analysis] Device ID:', selectedDeviceId);
+        console.log('[Analysis] Time Range:', timeRange);
 
         try {
             const { startTime, endTime } = getTimeRange(timeRange);
-            
+
+            console.log('[Analysis] ⏰ Calculated Time Range:');
+            console.log('   Start Time:', startTime);
+            console.log('   End Time:', endTime);
+            console.log('');
+            console.log('[Analysis] 📡 HTTP Request:');
+            console.log('   Endpoint: POST /get-stream-data/device');
+            console.log('   Payload:', JSON.stringify({
+                deviceId: selectedDeviceId,
+                startTime,
+                endTime,
+                pagination: '0',
+                pageSize: '500'
+            }, null, 2));
+            console.log('');
+
             const response = await getAllStreamData(
                 selectedDeviceId,
                 startTime,
@@ -74,32 +146,121 @@ function Analysis() {
                 500
             );
 
+            console.log('[Analysis] 📥 HTTP Response:');
+            console.log('   Status:', response.status);
+            console.log('   Data Length:', response.data?.length || 0);
+
+            if (response.data && response.data.length > 0) {
+                console.log('   Sample Record:', JSON.stringify(response.data[0], null, 2));
+            }
+            console.log('');
+
             if (response.status === 'Success' && response.data && response.data.length > 0) {
-                // Transform API data for chart
-                const transformed = response.data.map(record => ({
-                    time: new Date(record.timestamp).toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit',
-                        hour12: true 
-                    }),
-                    fullTime: record.timestamp,
-                    temp: record.temperature ?? null,
-                    humidity: record.humidity ?? null,
-                    battery: record.battery ?? null,
-                    pressure: record.pressure ?? null
-                }));
+                console.log('[Analysis] ✅ DATA TRANSFORMATION STARTING');
+                console.log('   Raw Records:', response.data.length);
+
+                // Group data by timestamp since API returns separate records for each sensor
+                const dataByTimestamp = {};
+
+                response.data.forEach(record => {
+                    try {
+                        // Parse payload JSON string
+                        const payload = JSON.parse(record.payload || '{}');
+                        const value = payload.value;
+                        const timestamp = record.timestamp;
+
+                        // Initialize timestamp entry if doesn't exist
+                        if (!dataByTimestamp[timestamp]) {
+                            dataByTimestamp[timestamp] = {
+                                timestamp: timestamp,
+                                temp: null,
+                                humidity: null,
+                                battery: null,
+                                pressure: null
+                            };
+                        }
+
+                        // Map value based on topicSuffix
+                        const topic = record.topicSuffix || '';
+                        if (topic.includes('temperature')) {
+                            dataByTimestamp[timestamp].temp = value;
+                        } else if (topic.includes('humidity')) {
+                            dataByTimestamp[timestamp].humidity = value;
+                        } else if (topic.includes('battery')) {
+                            dataByTimestamp[timestamp].battery = value;
+                        } else if (topic.includes('pressure')) {
+                            dataByTimestamp[timestamp].pressure = value;
+                        }
+                    } catch (parseError) {
+                        console.warn('[Analysis] Failed to parse record:', record, parseError);
+                    }
+                });
+
+                // Convert grouped data to array and format for chart
+                const transformed = Object.values(dataByTimestamp)
+                    .map(record => ({
+                        time: new Date(record.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
+                        }),
+                        fullTime: record.timestamp,
+                        temp: record.temp,
+                        humidity: record.humidity,
+                        battery: record.battery,
+                        pressure: record.pressure
+                    }))
+                    .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime)); // Sort by time
+
+                console.log('[Analysis] ✅ DATA TRANSFORMATION SUCCESS');
+                console.log('   Transformed Records:', transformed.length);
+                console.log('   Sample Transformed:', JSON.stringify(transformed[0], null, 2));
+                console.log('');
+                console.log('[Analysis] 📊 Data Point Statistics:');
+                const tempCount = transformed.filter(d => d.temp !== null).length;
+                const humidityCount = transformed.filter(d => d.humidity !== null).length;
+                const batteryCount = transformed.filter(d => d.battery !== null).length;
+                console.log(`   Temperature: ${tempCount}/${transformed.length} records`);
+                console.log(`   Humidity: ${humidityCount}/${transformed.length} records`);
+                console.log(`   Battery: ${batteryCount}/${transformed.length} records`);
+                console.log('');
 
                 setChartData(transformed);
                 setDataSource('api');
-                console.log(`[Analysis] ✅ Loaded ${transformed.length} data points from API`);
+                console.log('[Analysis] ✅ Chart data updated successfully!');
+                console.log('═══════════════════════════════════════════════════════════════');
+                console.log('');
             } else {
                 // No data from API - show empty state
-                console.log('[Analysis] ℹ️ No data available from API');
+                console.log('[Analysis] ⚠️ NO DATA RECEIVED');
+                console.log('   Response Status:', response.status);
+                console.log('   Data Array:', response.data ? 'Empty array' : 'Null/Undefined');
+                console.log('');
+                console.log('[Analysis] 💡 Troubleshooting:');
+                console.log('   1. Check if device exists:', selectedDeviceId);
+                console.log('   2. Check if data exists in time range:', startTime, 'to', endTime);
+                console.log('   3. Check backend logs for errors');
+                console.log('   4. Verify device is sending data to the backend');
+                console.log('═══════════════════════════════════════════════════════════════');
+                console.log('');
+
                 setChartData([]);
                 setDataSource('empty');
             }
         } catch (err) {
-            console.error('[Analysis] ❌ API error:', err);
+            console.error('[Analysis] ❌ HTTP REQUEST FAILED');
+            console.error('   Error Message:', err.message);
+            console.error('   Error Details:', err);
+            console.error('   Stack:', err.stack);
+            console.log('');
+            console.log('[Analysis] 💡 Troubleshooting:');
+            console.log('   1. Check network connectivity');
+            console.log('   2. Verify API endpoint is correct');
+            console.log('   3. Check if JWT token is valid');
+            console.log('   4. Review backend server logs');
+            console.log('═══════════════════════════════════════════════════════════════');
+            console.log('');
+
             setError(err.message || 'Failed to fetch data');
             setChartData([]);
             setDataSource('error');
@@ -111,10 +272,25 @@ function Analysis() {
     // Fetch data on mount and when dependencies change
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
+        fetchRobotData();
+    }, [fetchData, fetchRobotData]);
 
-    // Generate task history from current robots
-    const taskHistory = useMemo(() => generateTaskHistory(currentRobots), [currentRobots]);
+    // Auto-refresh every 30 seconds
+    useEffect(() => {
+        console.log('[Analysis] ⏰ Setting up 30-second auto-refresh');
+
+        const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
+        const intervalId = setInterval(() => {
+            console.log('[Analysis] 🔄 Auto-refresh triggered (30s interval)');
+            fetchData();
+            fetchRobotData();
+        }, AUTO_REFRESH_INTERVAL);
+
+        return () => {
+            console.log('[Analysis] 🛑 Clearing auto-refresh interval');
+            clearInterval(intervalId);
+        };
+    }, [fetchData]);
 
     const toggleMetric = (metric) => {
         setActiveMetrics(prev => ({
@@ -125,7 +301,7 @@ function Analysis() {
 
     const handleExportCSV = () => {
         console.log('[Analysis] 📥 Exporting CSV...');
-        
+
         if (chartData.length === 0) {
             alert('No data to export');
             return;
@@ -152,12 +328,8 @@ function Analysis() {
         link.href = URL.createObjectURL(blob);
         link.download = `${selectedDeviceId}_data_${timeRange}_${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
-        
-        console.log('[Analysis] ✅ CSV exported');
-    };
 
-    const handleFetchData = async () => {
-        await fetchData();
+        console.log('[Analysis] ✅ CSV exported');
     };
 
     // Styles
@@ -355,10 +527,10 @@ function Analysis() {
             <div style={styles.header}>
                 <h1 style={styles.title}>Environmental Data | {selectedDeviceId}</h1>
                 {dataSource === 'fallback' && (
-                    <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
                         color: '#F59E0B',
                         fontSize: '13px',
                         marginTop: '4px'
@@ -393,28 +565,6 @@ function Analysis() {
                             </button>
                             <button style={styles.filterPill}>
                                 {chartData.length} points
-                            </button>
-                            <button 
-                                style={{
-                                    ...styles.filterPill,
-                                    background: dataSource === 'api' ? '#D1FAE5' : (dataSource === 'empty' || dataSource === 'error') ? '#FEE2E2' : '#F3F4F6',
-                                    borderColor: dataSource === 'api' ? '#10B981' : (dataSource === 'empty' || dataSource === 'error') ? '#EF4444' : '#E5E7EB',
-                                    color: dataSource === 'api' ? '#065F46' : (dataSource === 'empty' || dataSource === 'error') ? '#991B1B' : '#6B7280'
-                                }}
-                            >
-                                <Globe size={12} />
-                                {dataSource === 'api' ? 'HTTP API' : dataSource === 'loading' ? 'Loading...' : 'No Data'}
-                            </button>
-                            <button
-                                style={{
-                                    ...styles.filterPill,
-                                    cursor: isLoading ? 'not-allowed' : 'pointer'
-                                }}
-                                onClick={handleFetchData}
-                                disabled={isLoading}
-                            >
-                                <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-                                {isLoading ? 'Loading...' : 'Refresh'}
                             </button>
                         </div>
                     </div>
@@ -467,6 +617,22 @@ function Analysis() {
                     gap: '16px',
                     marginBottom: '16px'
                 }}>
+                    <button
+                        style={{
+                            ...styles.exportBtn,
+                            opacity: isLoading ? 0.6 : 1,
+                            cursor: isLoading ? 'not-allowed' : 'pointer'
+                        }}
+                        onClick={() => {
+                            console.log('[Analysis] 🔄 Manual refresh triggered by user');
+                            fetchData();
+                            fetchRobotData();
+                        }}
+                        disabled={isLoading}
+                    >
+                        <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+                        Refresh
+                    </button>
                     <button
                         style={styles.exportBtn}
                         onClick={handleExportCSV}
@@ -531,30 +697,11 @@ function Analysis() {
                             <Database size={48} style={{ color: '#D1D5DB', marginBottom: '16px' }} />
                             <p style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>No Historical Data Available</p>
                             <p style={{ fontSize: '13px', maxWidth: '400px' }}>
-                                {error 
-                                    ? `Error: ${error}` 
+                                {error
+                                    ? `Error: ${error}`
                                     : `No stream data found for ${selectedDeviceId} in the last ${timeRange}. Data will appear here once the device starts streaming.`
                                 }
                             </p>
-                            <button
-                                style={{
-                                    marginTop: '16px',
-                                    padding: '8px 16px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #7C3AED',
-                                    background: '#7C3AED',
-                                    color: 'white',
-                                    fontSize: '13px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                                onClick={handleFetchData}
-                            >
-                                <RefreshCw size={14} />
-                                Try Again
-                            </button>
                         </div>
                     ) : (
                         <ResponsiveContainer width="100%" height="100%">
@@ -650,8 +797,8 @@ function Analysis() {
                         </tr>
                     </thead>
                     <tbody>
-                        {taskHistory.length > 0 ? (
-                            taskHistory.map((task, index) => (
+                        {robotData.length > 0 ? (
+                            robotData.map((task, index) => (
                                 <tr key={task.taskId}>
                                     <td style={styles.td}>{task.taskId}</td>
                                     <td style={styles.td}>{task.taskName}</td>
@@ -668,18 +815,18 @@ function Analysis() {
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={4} style={{ 
-                                    ...styles.td, 
-                                    textAlign: 'center', 
+                                <td colSpan={4} style={{
+                                    ...styles.td,
+                                    textAlign: 'center',
                                     padding: '40px',
                                     color: '#9CA3AF'
                                 }}>
-                                    No active tasks - Waiting for robot data from WebSocket
+                                    No robot data available - Fetching from HTTP (fleetMS/robots)
                                 </td>
                             </tr>
                         )}
                         {/* Empty rows to match design */}
-                        {taskHistory.length > 0 && [...Array(Math.max(0, 6 - taskHistory.length))].map((_, i) => (
+                        {robotData.length > 0 && [...Array(Math.max(0, 6 - robotData.length))].map((_, i) => (
                             <tr key={`empty-${i}`}>
                                 <td style={styles.emptyRow}></td>
                                 <td style={styles.emptyRow}></td>
