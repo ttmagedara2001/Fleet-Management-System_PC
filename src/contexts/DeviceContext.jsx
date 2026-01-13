@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { webSocketClient, TOPICS, toMqttFormat } from '../services/webSocketClient';
+import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
 const DeviceContext = createContext(null);
 
@@ -171,14 +172,49 @@ export function DeviceProvider({ children }) {
         return initial;
     });
 
+    // Initialize robots state with registry data per device
     const [robots, setRobots] = useState(() => {
+        // Build initial robot state from registry for all devices
+        const buildInitialRobots = () => {
+            const robotState = {};
+            DEVICES.forEach(device => {
+                const deviceRobots = getRobotsForDevice(device.id);
+                robotState[device.id] = {};
+                deviceRobots.forEach(robot => {
+                    robotState[device.id][robot.id] = {
+                        ...robot,
+                        ...DEFAULT_ROBOT_SENSOR_DATA,
+                        task: null
+                    };
+                });
+            });
+            return robotState;
+        };
+
         try {
             const saved = localStorage.getItem('fabrix_robots');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Merge saved data with registry defaults
+                const merged = buildInitialRobots();
+                Object.keys(parsed).forEach(deviceId => {
+                    if (merged[deviceId]) {
+                        Object.keys(parsed[deviceId]).forEach(robotId => {
+                            if (merged[deviceId][robotId]) {
+                                merged[deviceId][robotId] = {
+                                    ...merged[deviceId][robotId],
+                                    ...parsed[deviceId][robotId]
+                                };
+                            }
+                        });
+                    }
+                });
+                return merged;
+            }
         } catch (e) {
             console.error('[Device] Failed to load robots:', e);
         }
-        return {};
+        return buildInitialRobots();
     });
 
     const [alerts, setAlerts] = useState(() => {
@@ -665,6 +701,36 @@ export function DeviceProvider({ children }) {
         }));
     }, []);
 
+    // Handle robot online/offline status updates
+    // Payload format: {"robot-status": "online" | "offline", "robotId": "R-001"}
+    const handleRobotOnlineStatus = useCallback((deviceId, robotId, status) => {
+        console.log(`[Device] 🤖 Robot ${robotId} status: ${status === 'online' ? '🟢' : '🔴'} ${status}`);
+
+        setRobots(prev => {
+            // Find the robot - might be stored with different ID format
+            const deviceRobots = prev[deviceId] || {};
+            const matchingRobotId = Object.keys(deviceRobots).find(id =>
+                id === robotId ||
+                id.includes(robotId) ||
+                robotId.includes(id)
+            ) || robotId;
+
+            return {
+                ...prev,
+                [deviceId]: {
+                    ...prev[deviceId],
+                    [matchingRobotId]: {
+                        ...prev[deviceId]?.[matchingRobotId],
+                        id: matchingRobotId,
+                        'robot-status': status,
+                        robotStatus: status,
+                        lastUpdate: Date.now()
+                    }
+                }
+            };
+        });
+    }, []);
+
     // Clear alert by ID
     const clearAlert = useCallback((alertId) => {
         setAlerts(prev => prev.filter(a => a.id !== alertId));
@@ -733,6 +799,13 @@ export function DeviceProvider({ children }) {
             // Robot tasks: { robotId, task, tasks }
             if (payload.robotId && (payload.task !== undefined || payload.tasks !== undefined)) {
                 handleRobotTaskUpdate(deviceId, payload.robotId, payload);
+            }
+
+            // Robot online/offline status: { "robot-status": "online" | "offline", "robotId": "R-001" }
+            if (payload['robot-status'] !== undefined || payload.robotStatus !== undefined) {
+                const status = payload['robot-status'] || payload.robotStatus;
+                const robotId = payload.robotId || payload.robot_id || 'unknown';
+                handleRobotOnlineStatus(deviceId, robotId, status);
             }
 
             // Also update general device data for any stream message

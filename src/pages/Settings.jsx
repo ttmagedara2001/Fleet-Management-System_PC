@@ -104,11 +104,22 @@ function Settings() {
         }
     };
 
+    // Get robot status from WebSocket payload
+    // Payload format: {"robot-status": "online"} or {"robot-status": "offline"}
     const getRobotStatus = (robot) => {
-        const state = robot?.status?.state;
-        if (state === 'ERROR' || state === 'STOPPED') return 'error';
-        if (state === 'CHARGING' || state === 'IDLE') return 'warning';
-        return 'online';
+        // Check for robot-status field (from WebSocket payload)
+        const robotStatus = robot?.['robot-status'] || robot?.robotStatus;
+        if (robotStatus === 'online') return 'online';
+        if (robotStatus === 'offline') return 'offline';
+
+        // Fallback to legacy status field
+        const state = robot?.status?.state || robot?.status;
+        if (state === 'Active' || state === 'online' || state === 'ACTIVE') return 'online';
+        if (state === 'ERROR' || state === 'STOPPED' || state === 'offline') return 'offline';
+        if (state === 'CHARGING' || state === 'IDLE' || state === 'Idle') return 'warning';
+
+        // Default to offline (red) if status is unknown
+        return 'offline';
     };
 
     return (
