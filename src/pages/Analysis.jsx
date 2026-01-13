@@ -22,7 +22,7 @@ import {
     Legend
 } from 'recharts';
 import { useDevice } from '../contexts/DeviceContext';
-import { getAllStreamData, getStreamData, getTimeRange } from '../services/api';
+import { getAllStreamData, getStreamData, getStateDetails, getTimeRange } from '../services/api';
 
 // Get task history from robots context
 const generateTaskHistory = (robots) => {
@@ -58,53 +58,129 @@ function Analysis() {
         battery: true
     });
 
-    // Fetch robot data from HTTP
+    // Fetch robot task data from HTTP (STATE, not STREAM)
     const fetchRobotData = useCallback(async () => {
-        console.log('[Analysis] 🤖 Fetching robot data from fleetMS/robots');
+        console.log('');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('[Analysis] 🤖 FETCHING ROBOT DATA');
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('[Analysis] Device ID:', selectedDeviceId);
+        console.log('');
 
         try {
             const { startTime, endTime } = getTimeRange(timeRange);
 
-            const response = await getStreamData(
+            // 1. Fetch robots from STREAM (robot discovery)
+            // We use getAllStreamData because we know it works reliably
+            console.log('[Analysis] 📡 Step 1: Fetching robots from STREAM (via getAllStreamData)');
+
+            const streamResponse = await getAllStreamData(
                 selectedDeviceId,
-                'fleetMS/robots',
                 startTime,
                 endTime,
                 0,
-                100
+                500 // Fetch plenty of records
             );
 
-            console.log('[Analysis] 📥 Robot HTTP Response:');
-            console.log('   Status:', response.status);
-            console.log('   Data Length:', response.data?.length || 0);
+            console.log('   Stream Status:', streamResponse.status);
+            console.log('   Total Stream Records:', streamResponse.data?.length || 0);
 
-            if (response.status === 'Success' && response.data && response.data.length > 0) {
-                // Parse robot data
-                const robots = response.data.map(record => {
-                    try {
-                        const payload = JSON.parse(record.payload || '{}');
-                        return {
-                            robotId: payload.robotId || payload.id || 'Unknown',
-                            taskId: payload.taskId || payload.task?.taskId || '-',
-                            taskName: payload.taskName || payload.task?.type || 'No Task',
-                            status: payload.status || payload.task?.status || 'Idle',
-                            timestamp: record.timestamp
-                        };
-                    } catch (parseError) {
-                        console.warn('[Analysis] Failed to parse robot record:', record);
-                        return null;
+            // Build robot map from stream data
+            const robotMap = {};
+            let robotCount = 0;
+
+            if (streamResponse.status === 'Success' && streamResponse.data) {
+                streamResponse.data.forEach(record => {
+                    // Filter for robot records only
+                    if (record.topicSuffix && record.topicSuffix.includes('robots')) {
+                        try {
+                            const payload = JSON.parse(record.payload || '{}');
+                            const robotId = payload.robotId || payload.id;
+
+                            if (robotId && !robotMap[robotId]) {
+                                robotMap[robotId] = {
+                                    robotId: robotId,
+                                    robotName: payload.robotName || robotId,
+                                    taskId: '-',
+                                    taskName: 'No Task',
+                                    status: 'Idle',
+                                    location: '-',
+                                    priority: 'Normal'
+                                };
+                                robotCount++;
+                                console.log('   Found robot:', robotId);
+                            }
+                        } catch (err) {
+                            console.warn('   Failed to parse robot record:', err);
+                        }
                     }
-                }).filter(r => r !== null);
-
-                setRobotData(robots);
-                console.log('[Analysis] ✅ Robot data updated:', robots.length, 'robots');
-            } else {
-                setRobotData([]);
-                console.log('[Analysis] ℹ️ No robot data available');
+                });
             }
+
+            console.log('   ✅ Found', robotCount, 'unique robots from stream');
+            console.log('');
+
+            // 2. Fetch assigned tasks from STATE
+            console.log('[Analysis] 📡 Step 2: Fetching assigned tasks from STATE');
+
+            const stateResponse = await getStateDetails(selectedDeviceId);
+
+            console.log('   State Status:', stateResponse.status);
+            console.log('   State Keys:', Object.keys(stateResponse.data || {}).length);
+
+            if (stateResponse.status === 'Success' && stateResponse.data) {
+                // Merge task assignments into robot map
+                Object.entries(stateResponse.data).forEach(([topicKey, value]) => {
+                    if (topicKey.includes('fleetMS/robots/') && topicKey.includes('/task')) {
+                        try {
+                            const robotIdMatch = topicKey.match(/fleetMS\/robots\/([^/]+)\/task/);
+                            const robotId = robotIdMatch ? robotIdMatch[1] : null;
+
+                            if (robotId) {
+                                const taskData = typeof value === 'string' ? JSON.parse(value) : value;
+
+                                // Update or create robot with task info
+                                if (!robotMap[robotId]) {
+                                    robotMap[robotId] = { robotId: robotId };
+                                }
+
+                                robotMap[robotId] = {
+                                    ...robotMap[robotId],
+                                    taskId: taskData.taskId || '-',
+                                    taskName: taskData.taskName || 'No Task',
+                                    status: taskData.status || 'Assigned',
+                                    location: taskData.location || '-',
+                                    priority: taskData.priority || 'Normal'
+                                };
+
+                                console.log('   ✅ Task assigned to robot:', robotId);
+                            }
+                        } catch (err) {
+                            console.warn('   Failed to parse task:', topicKey, err);
+                        }
+                    }
+                });
+            }
+
+            console.log('');
+
+            // Convert map to array
+            const robots = Object.values(robotMap);
+
+            console.log('[Analysis] 📋 FINAL ROBOT DATA:');
+            console.log('   Total robots:', robots.length);
+
+            setRobotData(robots);
+            console.log('[Analysis] ✅ Robot data updated successfully!');
+            console.log('═══════════════════════════════════════════════════════════════');
+            console.log('');
+
         } catch (err) {
-            console.error('[Analysis] ❌ Robot data fetch error:', err);
-            setRobotData([]);
+            console.error('═══════════════════════════════════════════════════════════════');
+            console.error('[Analysis] ❌ ROBOT DATA FETCH FAILED');
+            console.error('   Error:', err.message);
+            console.error('═══════════════════════════════════════════════════════════════');
+            console.error('');
         }
     }, [selectedDeviceId, timeRange]);
 
@@ -149,6 +225,55 @@ function Analysis() {
             console.log('[Analysis] 📥 HTTP Response:');
             console.log('   Status:', response.status);
             console.log('   Data Length:', response.data?.length || 0);
+
+            // 1. Fetch robots from STREAM (robot discovery)
+            console.log('[Analysis] 📡 Step 1: Fetching robots from STREAM (using getAllStreamData)');
+
+            // We use getAllStreamData because we know it works reliably
+            const streamResponse = await getAllStreamData(
+                selectedDeviceId,
+                startTime,
+                endTime,
+                0,
+                500 // Fetch plenty of records to ensure we find robots
+            );
+
+            console.log('   Stream Status:', streamResponse.status);
+            console.log('   Total Stream Records:', streamResponse.data?.length || 0);
+
+            // Build robot map from stream data
+            const robotMap = {};
+            let robotCount = 0;
+
+            if (streamResponse.status === 'Success' && streamResponse.data) {
+                streamResponse.data.forEach(record => {
+                    // Filter for robot records only
+                    if (record.topicSuffix && record.topicSuffix.includes('robots')) {
+                        try {
+                            const payload = JSON.parse(record.payload || '{}');
+                            const robotId = payload.robotId || payload.id;
+                            console.log('   Found robot record:', robotId);
+
+                            if (robotId && !robotMap[robotId]) {
+                                robotMap[robotId] = {
+                                    robotId: robotId,
+                                    robotName: payload.robotName || robotId,
+                                    taskId: '-',
+                                    taskName: 'No Task',
+                                    status: 'Idle',
+                                    location: '-',
+                                    priority: 'Normal'
+                                };
+                                robotCount++;
+                            }
+                        } catch (err) {
+                            console.warn('   Failed to parse robot record:', err);
+                        }
+                    }
+                });
+            }
+
+            console.log('   ✅ Found', robotCount, 'unique robots from stream');
 
             if (response.data && response.data.length > 0) {
                 console.log('   Sample Record:', JSON.stringify(response.data[0], null, 2));

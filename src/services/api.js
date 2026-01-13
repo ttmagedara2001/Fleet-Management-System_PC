@@ -277,6 +277,34 @@ export async function deleteStateTopic(deviceId, topic) {
   return response.data;
 }
 
+/**
+ * Assign task to a robot
+ * POST /update-state-details
+ * 
+ * @param {string} deviceId - Device ID
+ * @param {string} robotId - Robot ID
+ * @param {object} taskData - Task details { taskId, taskName, location, priority, etc. }
+ * @param {function} onSuccess - Optional callback to execute after successful assignment
+ */
+export async function assignTaskToRobot(deviceId, robotId, taskData, onSuccess) {
+  console.log('[API] 📡 POST /update-state-details (Assign Task to Robot)');
+  console.log('[API] Robot ID:', robotId);
+  console.log('[API] Task Data:', taskData);
+  
+  const topic = `fleetMS/robots/${robotId}/task`;
+  const response = await updateState(deviceId, topic, taskData);
+  
+  console.log('[API] ✅ Task assigned successfully');
+  
+  // Trigger callback if provided (for immediate UI refresh)
+  if (onSuccess && typeof onSuccess === 'function') {
+    console.log('[API] 🔄 Triggering immediate data refresh...');
+    onSuccess();
+  }
+  
+  return response;
+}
+
 // ==================== CONVENIENCE FUNCTIONS ====================
 
 /**
