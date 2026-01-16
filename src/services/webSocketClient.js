@@ -15,10 +15,7 @@ export const TOPICS = {
     STATE: (deviceId) => `/topic/state/${deviceId}`
 };
 
-// Convert frontend topic to MQTT format
-export function toMqttFormat(topic) {
-    return topic.replace(/\//g, '/');
-}
+
 
 class WebSocketClient {
     constructor() {
@@ -37,7 +34,6 @@ class WebSocketClient {
      */
     async connect(token) {
         if (this.connected && this.client?.active) {
-            console.log('[WebSocket] Already connected');
             return;
         }
 
@@ -45,14 +41,14 @@ class WebSocketClient {
 
         return new Promise((resolve, reject) => {
             try {
-                this.client = new Client({
-                    webSocketFactory: () => new SockJS(WS_URL),
+                const stompConfig = {
                     connectHeaders: {
                         'X-Token': token
                     },
                     debug: (str) => {
-                        if (str.includes('CONNECTED') || str.includes('ERROR')) {
-                            console.log('[WebSocket]', str);
+                        // Only log errors or specific important events if needed
+                        if (str.includes('ERROR')) {
+                            console.error('[WebSocket] STOMP Debug:', str);
                         }
                     },
                     reconnectDelay: this.reconnectDelay,
@@ -74,20 +70,29 @@ class WebSocketClient {
                         this.connected = false;
                     },
                     onWebSocketClose: (event) => {
-                        console.log('[WebSocket] WebSocket closed:', event.reason || 'No reason');
                         this.connected = false;
                     },
                     onWebSocketError: (error) => {
-                        console.error('[WebSocket] ❌ WebSocket Error:', error);
+                        console.error('[WebSocket] ❌ WebSocket Error');
                         this.connected = false;
                     }
-                });
+                };
+
+                // Use brokerURL for native WebSockets (ws://, wss://)
+                // Use webSocketFactory for SockJS (http://, https://)
+                if (WS_URL.startsWith('ws')) {
+                    // Append token as query parameter as requested: wss://.../ws?token=xxx
+                    stompConfig.brokerURL = `${WS_URL}${WS_URL.includes('?') ? '&' : '?'}token=${token}`;
+                } else {
+                    stompConfig.webSocketFactory = () => new SockJS(WS_URL);
+                }
+
+                this.client = new Client(stompConfig);
 
                 this.client.activate();
-                console.log('[WebSocket] 🔗 Connecting to:', WS_URL);
 
             } catch (error) {
-                console.error('[WebSocket] ❌ Connection failed:', error);
+                console.error('[WebSocket] ❌ Connection attempt failed');
                 reject(error);
             }
         });
@@ -102,9 +107,7 @@ class WebSocketClient {
             this.subscriptions.forEach((sub, topic) => {
                 try {
                     sub.unsubscribe();
-                    console.log('[WebSocket] Unsubscribed from:', topic);
                 } catch (e) {
-                    // Ignore unsubscribe errors during disconnect
                 }
             });
             this.subscriptions.clear();
@@ -124,13 +127,11 @@ class WebSocketClient {
      */
     subscribe(topic, callback) {
         if (!this.connected || !this.client?.active) {
-            console.warn('[WebSocket] ⚠️ Cannot subscribe - not connected');
             return null;
         }
 
         // Check if already subscribed
         if (this.subscriptions.has(topic)) {
-            console.log('[WebSocket] Already subscribed to:', topic);
             return this.subscriptions.get(topic);
         }
 
@@ -138,10 +139,9 @@ class WebSocketClient {
             const subscription = this.client.subscribe(topic, (message) => {
                 try {
                     const data = JSON.parse(message.body);
-                    console.log('[WebSocket] 📥 Message received on', topic);
                     callback(data);
                 } catch (e) {
-                    console.error('[WebSocket] ❌ Failed to parse message:', e);
+                    console.error('[WebSocket] ❌ Failed to parse message');
                 }
             });
 
@@ -150,7 +150,7 @@ class WebSocketClient {
             return subscription;
 
         } catch (error) {
-            console.error('[WebSocket] ❌ Subscribe failed:', error);
+            console.error('[WebSocket] ❌ Subscribe failed:', topic);
             return null;
         }
     }
@@ -165,9 +165,9 @@ class WebSocketClient {
             try {
                 subscription.unsubscribe();
                 this.subscriptions.delete(topic);
-                console.log('[WebSocket] Unsubscribed from:', topic);
+                console.log('[WebSocket] ✅ Unsubscribed from:', topic);
             } catch (e) {
-                console.error('[WebSocket] ❌ Unsubscribe failed:', e);
+                console.error('[WebSocket] ❌ Unsubscribe failed:', topic);
             }
         }
     }
@@ -179,7 +179,6 @@ class WebSocketClient {
      */
     send(destination, body) {
         if (!this.connected || !this.client?.active) {
-            console.warn('[WebSocket] ⚠️ Cannot send - not connected');
             return false;
         }
 
@@ -191,10 +190,9 @@ class WebSocketClient {
                     'X-Token': this.token
                 }
             });
-            console.log('[WebSocket] 📤 Message sent to:', destination);
             return true;
         } catch (error) {
-            console.error('[WebSocket] ❌ Send failed:', error);
+            console.error('[WebSocket] ❌ Send failed to:', destination);
             return false;
         }
     }

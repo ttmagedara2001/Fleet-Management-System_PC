@@ -18,10 +18,7 @@ const CREDENTIALS = {
  * @returns {Promise<{jwtToken: string, refreshToken: string}>}
  */
 export async function login() {
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("🔐 AUTO-LOGIN: Initiating API call...");
-  console.log("📧 Email:", CREDENTIALS.email);
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🔐 AUTO-LOGIN: Initiating authentication...");
 
   try {
     const response = await fetch(`${API_BASE_URL}/get-token`, {
@@ -36,11 +33,8 @@ export async function login() {
       }),
     });
 
-    console.log("📨 Response Status:", response.status);
-
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ Login Failed:", errorText);
+      console.error("❌ Authentication Failed");
       throw new Error(`Login failed: ${response.status}`);
     }
 
@@ -60,13 +54,11 @@ export async function login() {
       localStorage.setItem("refreshToken", refreshToken);
     }
 
-    console.log("✅ LOGIN SUCCESSFUL!");
-    console.log("🎫 JWT Token acquired (length:", jwtToken.length, ")");
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("✅ AUTHENTICATION SUCCESSFUL");
 
     return { jwtToken, refreshToken };
   } catch (error) {
-    console.error("❌ AUTO-LOGIN ERROR:", error.message);
+    console.error("❌ AUTHENTICATION ERROR:", error.message);
     throw error;
   }
 }

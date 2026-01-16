@@ -74,10 +74,7 @@ export function getRobotIds(deviceId) {
 }
 
 /**
- * Generate MQTT/WebSocket topics for a robot
- * @param {string} deviceId - Device ID
- * @param {string} robotId - Robot ID
- * @returns {Object} - Object containing all topics for the robot
+ * Generate WebSocket topics for a robot
  */
 export function getRobotTopics(deviceId, robotId) {
     const base = `fleetMS/robots/${robotId}`;
@@ -102,7 +99,7 @@ export const DEFAULT_ROBOT_SENSOR_DATA = {
     temperature: null,
     humidity: null,
     battery: 100,
-    location: { x: 0, y: 0, zone: 'Unknown' },
+    location: { lat: null, lng: null, z: 0, zone: 'Ready' },
     status: 'Idle',
     lastUpdate: null
 };

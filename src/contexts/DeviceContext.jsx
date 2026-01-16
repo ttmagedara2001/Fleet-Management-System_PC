@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { webSocketClient, TOPICS, toMqttFormat } from '../services/webSocketClient';
+import { webSocketClient, TOPICS } from '../services/webSocketClient';
+import { getStateDetails } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
 const DeviceContext = createContext(null);
@@ -174,7 +175,6 @@ export function DeviceProvider({ children }) {
 
     // Initialize robots state with registry data per device
     const [robots, setRobots] = useState(() => {
-        // Build initial robot state from registry for all devices
         const buildInitialRobots = () => {
             const robotState = {};
             DEVICES.forEach(device => {
@@ -184,7 +184,8 @@ export function DeviceProvider({ children }) {
                     robotState[device.id][robot.id] = {
                         ...robot,
                         ...DEFAULT_ROBOT_SENSOR_DATA,
-                        task: null
+                        task: null,
+                        lastUpdate: Date.now()
                     };
                 });
             });
@@ -195,18 +196,12 @@ export function DeviceProvider({ children }) {
             const saved = localStorage.getItem('fabrix_robots');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                // Merge saved data with registry defaults
                 const merged = buildInitialRobots();
                 Object.keys(parsed).forEach(deviceId => {
                     if (merged[deviceId]) {
-                        Object.keys(parsed[deviceId]).forEach(robotId => {
-                            if (merged[deviceId][robotId]) {
-                                merged[deviceId][robotId] = {
-                                    ...merged[deviceId][robotId],
-                                    ...parsed[deviceId][robotId]
-                                };
-                            }
-                        });
+                        Object.assign(merged[deviceId], parsed[deviceId]);
+                    } else {
+                        merged[deviceId] = parsed[deviceId];
                     }
                 });
                 return merged;
@@ -285,7 +280,7 @@ export function DeviceProvider({ children }) {
                 const response = await getStateDetails(selectedDeviceId);
 
                 if (response.status === 'Success' && response.data) {
-                    console.log('[Device] ✅ Initial state received:', response.data);
+                    console.log('[Device] ✅ HTTP connection verified - Initial state received');
 
                     // Update device state with API data
                     setDeviceData(prev => ({
@@ -315,7 +310,28 @@ export function DeviceProvider({ children }) {
     // Get current device data
     const currentDevice = DEVICES.find(d => d.id === selectedDeviceId);
     const currentDeviceData = deviceData[selectedDeviceId] || DEFAULT_DEVICE_STATE;
-    const currentRobots = robots[selectedDeviceId] || {};
+
+    // Ensure currentRobots always contains registry robots (at least 5)
+    const currentRobots = useMemo(() => {
+        const stateRobots = robots[selectedDeviceId] || {};
+        const registryRobots = getRobotsForDevice(selectedDeviceId);
+
+        const merged = { ...stateRobots };
+
+        // Ensure all registry robots are present
+        registryRobots.forEach(regRobot => {
+            if (!merged[regRobot.id]) {
+                merged[regRobot.id] = {
+                    ...regRobot,
+                    ...DEFAULT_ROBOT_SENSOR_DATA,
+                    task: null,
+                    lastUpdate: Date.now()
+                };
+            }
+        });
+
+        return merged;
+    }, [robots, selectedDeviceId]);
 
     // Add alert with deduplication
     const addAlert = useCallback((alert) => {
@@ -538,10 +554,10 @@ export function DeviceProvider({ children }) {
                     ...prev[deviceId],
                     [robotId]: {
                         id: robotId,
-                        location: { lat: 0, lng: 0, z: 0 },
+                        location: { lat: null, lng: null, z: 0 },
                         heading: 0,
                         environment: { temp: null, humidity: null },
-                        status: { battery: null, load: null, state: 'UNKNOWN' },
+                        status: { battery: null, load: null, state: 'READY' },
                         task: null,
                         lastUpdate: null
                     }
@@ -552,24 +568,35 @@ export function DeviceProvider({ children }) {
 
     // Handle robot location updates
     const handleRobotLocationUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖📍 Robot location update:', robotId, payload);
+        setRobots(prev => {
+            const deviceRobots = prev[deviceId] || {};
+            const existingRobot = deviceRobots[robotId] || {
+                id: robotId,
+                location: { lat: null, lng: null, z: 0 },
+                heading: 0,
+                status: { state: 'READY', battery: 100 },
+                environment: { temp: null, humidity: null },
+                task: null
+            };
 
-        setRobots(prev => ({
-            ...prev,
-            [deviceId]: {
-                ...prev[deviceId],
-                [robotId]: {
-                    ...prev[deviceId]?.[robotId],
-                    location: {
-                        lat: payload.lat ?? payload.latitude ?? payload.y ?? prev[deviceId]?.[robotId]?.location?.lat,
-                        lng: payload.lng ?? payload.longitude ?? payload.x ?? prev[deviceId]?.[robotId]?.location?.lng,
-                        z: payload.z ?? payload.altitude ?? prev[deviceId]?.[robotId]?.location?.z
-                    },
-                    heading: payload.heading ?? payload.orientation ?? prev[deviceId]?.[robotId]?.heading,
-                    lastUpdate: Date.now()
+            return {
+                ...prev,
+                [deviceId]: {
+                    ...deviceRobots,
+                    [robotId]: {
+                        ...existingRobot,
+                        location: {
+                            lat: payload.lat ?? payload.latitude ?? (payload.location?.lat) ?? existingRobot.location?.lat,
+                            lng: payload.lng ?? payload.longitude ?? (payload.location?.lng) ?? existingRobot.location?.lng,
+                            z: payload.z ?? payload.altitude ?? existingRobot.location?.z
+                        },
+                        status: payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status,
+                        heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
+                        lastUpdate: Date.now()
+                    }
                 }
-            }
-        }));
+            };
+        });
     }, []);
 
     // Handle robot temperature updates
@@ -608,7 +635,27 @@ export function DeviceProvider({ children }) {
 
     // Handle robot status updates
     const handleRobotStatusUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖📊 Robot status update:', robotId, payload);
+        // Ensure robot is registered
+        setRobots(prev => {
+            if (!prev[deviceId]?.[robotId]) {
+                return {
+                    ...prev,
+                    [deviceId]: {
+                        ...prev[deviceId],
+                        [robotId]: {
+                            id: robotId,
+                            location: { lat: 0, lng: 0, z: 0 },
+                            heading: 0,
+                            environment: { temp: null, humidity: null },
+                            status: { battery: null, load: null, state: 'UNKNOWN' },
+                            task: null,
+                            lastUpdate: Date.now()
+                        }
+                    }
+                };
+            }
+            return prev;
+        });
 
         setRobots(prev => ({
             ...prev,
@@ -640,7 +687,27 @@ export function DeviceProvider({ children }) {
 
     // Handle robot battery updates
     const handleRobotBatteryUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖🔋 Robot battery update:', robotId, payload);
+        // Ensure robot is registered
+        setRobots(prev => {
+            if (!prev[deviceId]?.[robotId]) {
+                return {
+                    ...prev,
+                    [deviceId]: {
+                        ...prev[deviceId],
+                        [robotId]: {
+                            id: robotId,
+                            location: { lat: 0, lng: 0, z: 0 },
+                            heading: 0,
+                            environment: { temp: null, humidity: null },
+                            status: { battery: null, load: null, state: 'UNKNOWN' },
+                            task: null,
+                            lastUpdate: Date.now()
+                        }
+                    }
+                };
+            }
+            return prev;
+        });
 
         const battery = payload.battery ?? payload.level ?? payload.percentage;
 
@@ -686,7 +753,27 @@ export function DeviceProvider({ children }) {
 
     // Handle robot task updates (both stream and state)
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖📋 Robot task update:', robotId, payload);
+        // Ensure robot is registered
+        setRobots(prev => {
+            if (!prev[deviceId]?.[robotId]) {
+                return {
+                    ...prev,
+                    [deviceId]: {
+                        ...prev[deviceId],
+                        [robotId]: {
+                            id: robotId,
+                            location: { lat: 0, lng: 0, z: 0 },
+                            heading: 0,
+                            environment: { temp: null, humidity: null },
+                            status: { battery: null, load: null, state: 'UNKNOWN' },
+                            task: null,
+                            lastUpdate: Date.now()
+                        }
+                    }
+                };
+            }
+            return prev;
+        });
 
         setRobots(prev => ({
             ...prev,
@@ -751,19 +838,10 @@ export function DeviceProvider({ children }) {
         const deviceId = selectedDeviceId;
         const device = DEVICES.find(d => d.id === deviceId);
 
-        console.log('');
-        console.log('════════════════════════════════════════════════════════════');
-        console.log('🔌 [FleetMS] SUBSCRIBING TO DEVICE:', deviceId);
-        console.log('🏭 Device Name:', device?.name || 'Unknown');
-        console.log('📍 Zone:', device?.zone || 'Unknown');
-        console.log('════════════════════════════════════════════════════════════');
-        console.log('');
-        console.log('📡 [FleetMS] Device Topic Subscriptions (2 topics only):');
-        console.log('────────────────────────────────────────────────────────────');
+        console.log(`[Device] 🔌 Subscribing to device: ${deviceId} (${device?.name || 'Unknown'})`);
 
         // Helper function to route incoming data based on payload structure
         const routeStreamData = (payload) => {
-            console.log('[FleetMS] 📡 Stream data received:', payload);
 
             // Check for device-level data
             if (payload.ambient_temp !== undefined || payload.temperature !== undefined) {
@@ -813,7 +891,6 @@ export function DeviceProvider({ children }) {
         };
 
         const routeStateData = (payload) => {
-            console.log('[FleetMS] 📊 State data received:', payload);
 
             // Check for device control states
             if (payload.ac_power !== undefined || payload.ac !== undefined) {
@@ -836,18 +913,17 @@ export function DeviceProvider({ children }) {
         // Subscribe to the two main topics ONLY
         // 1. Stream topic - for temperature, robots discovery, robot telemetry, etc.
         const streamTopic = TOPICS.STREAM(deviceId);
-        console.log('📡 Stream:', toMqttFormat(streamTopic));
+        console.log('📡 Stream:', streamTopic);
         subscribe(streamTopic, routeStreamData);
         subscriptionsRef.current.push(streamTopic);
 
         // 2. State topic - for AC, air purifier, device status, robot commands, etc.
         const stateTopic = TOPICS.STATE(deviceId);
-        console.log('📊 State: ', toMqttFormat(stateTopic));
+        console.log('📊 State: ', stateTopic);
         subscribe(stateTopic, routeStateData);
         subscriptionsRef.current.push(stateTopic);
 
-        console.log('────────────────────────────────────────────────────────────');
-        console.log('✅ [FleetMS] Device subscriptions complete! (2 topics)');
+        console.log(`[Device] ✅ Subscriptions complete for ${deviceId}`);
         console.log('   All robot data will be routed through these topics');
         console.log('');
 

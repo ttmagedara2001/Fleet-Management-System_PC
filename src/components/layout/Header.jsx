@@ -68,15 +68,15 @@ function Header({ onMenuToggle, sidebarOpen }) {
                 </select>
             </div>
 
-            {/* Right - Icons */}
+            {/* Right - Connection Status & Icons */}
             <div className="header-icons">
-                <div className={`header-icon ${isConnected ? 'active' : ''}`} title="WebSocket">
+                <div className={`header-icon ${isConnected ? 'active' : ''}`} title="Live Data (WebSocket)">
                     <Wifi size={18} />
                 </div>
-                <div className={`header-icon ${isConnected ? 'active' : ''}`} title="MQTT">
+                <div className="header-icon active" title="HTTP API Connected">
                     <Radio size={18} />
                 </div>
-                <div className={`header-icon ${isAuthenticated ? 'active' : ''}`} title="Server">
+                <div className={`header-icon ${isAuthenticated ? 'active' : ''}`} title="Server Status">
                     <Server size={18} />
                 </div>
                 <div className="w-px h-6 bg-white/30 mx-2" />

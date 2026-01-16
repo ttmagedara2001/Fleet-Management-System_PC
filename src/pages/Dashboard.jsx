@@ -26,14 +26,16 @@ function FabMap() {
         { id: 'cleanroom-b', name: 'Cleanroom B', left: '45%', top: '5%', width: '30%', height: '40%', type: 'cleanroom' },
         { id: 'loading', name: 'Loading Bay', left: '5%', top: '55%', width: '25%', height: '35%', type: 'loading' },
         { id: 'storage', name: 'Storage', left: '35%', top: '55%', width: '25%', height: '35%', type: 'storage' },
-        { id: 'maintenance', name: 'Maintenance', left: '65%', top: '55%', width: '25%', height: '35%', type: 'storage' },
+        { id: 'maintenance', name: 'Maintenance', left: '65%', top: '55%', width: '25%', height: '25%', type: 'storage' },
+        { id: 'parking', name: 'Reset Position (Ready)', left: '65%', top: '82%', width: '25%', height: '10%', type: 'reset' },
     ];
 
     const getStatusColor = (robot) => {
-        const state = robot?.status?.state;
+        const state = robot?.status?.state?.toUpperCase();
         if (state === 'ERROR' || state === 'STOPPED') return '#EF4444';
         if (state === 'CHARGING') return '#F59E0B';
-        return '#22C55E';
+        if (state === 'ACTIVE' || state === 'MOVING') return '#22C55E';
+        return '#9CA3AF'; // Gray for Ready/Idle
     };
 
     return (
@@ -56,9 +58,23 @@ function FabMap() {
                 ))}
 
                 {/* Robot Markers */}
-                {robots.map(robot => {
-                    const x = 15 + (robot.location?.lng || 0) * 70;
-                    const y = 15 + (robot.location?.lat || 0) * 70;
+                {robots.map((robot, index) => {
+                    // Check if robot has valid location data, otherwise put in Reset Position
+                    const hasLocation = robot.location &&
+                        robot.location.lat !== null &&
+                        robot.location.lng !== null &&
+                        (robot.location.lat !== 0 || robot.location.lng !== 0);
+
+                    let x, y;
+                    if (hasLocation) {
+                        x = 15 + (robot.location.lng || 0) * 70;
+                        y = 15 + (robot.location.lat || 0) * 70;
+                    } else {
+                        // Place in Reset Position zone (Ready)
+                        // Spread them out horizontally so all 5 are visible, slightly higher in the zone
+                        x = 68 + (index * 4.4);
+                        y = 86;
+                    }
 
                     return (
                         <div
@@ -67,7 +83,7 @@ function FabMap() {
                             style={{ left: `${x}%`, top: `${y}%` }}
                             onClick={() => setSelectedRobot(selectedRobot?.id === robot.id ? null : robot)}
                         >
-                            {robot.id.replace('robot-', 'R')}
+                            {robot.id.replace('R-', 'R')}
                             <div
                                 className="status-dot"
                                 style={{ background: getStatusColor(robot) }}
@@ -85,11 +101,18 @@ function FabMap() {
                             top: `${10 + (selectedRobot.location?.lat || 0) * 50}%`
                         }}
                     >
-                        <h4>ROBOT {selectedRobot.id.replace('robot-', 'R-')}</h4>
+                        <h4>ROBOT {selectedRobot.id}</h4>
+                        <div className="robot-tooltip-row">
+                            <span className="label">LOC (LAT/LNG):</span>
+                            <span className="value">
+                                {selectedRobot.location?.lat?.toFixed(3) || '0.000'},
+                                {selectedRobot.location?.lng?.toFixed(3) || '0.000'}
+                            </span>
+                        </div>
                         <div className="robot-tooltip-row">
                             <span className="label">STATUS:</span>
                             <span className="value" style={{ color: getStatusColor(selectedRobot) }}>
-                                {selectedRobot.status?.state || 'Unknown'}
+                                {selectedRobot.status?.state || 'READY'}
                             </span>
                         </div>
                         <div className="robot-tooltip-row">
@@ -102,7 +125,7 @@ function FabMap() {
                         </div>
                         {selectedRobot.task?.progress != null && (
                             <div className="robot-tooltip-row">
-                                <span className="label">TASK PROGRESS:</span>
+                                <span className="label">PROGRESS:</span>
                                 <span className="value">{selectedRobot.task.progress}%</span>
                             </div>
                         )}
@@ -336,23 +359,24 @@ function RobotDetails() {
 // Main Dashboard Component
 function Dashboard() {
     return (
-        <div>
+        <div className="dashboard-content">
             <div className="dashboard-grid">
                 {/* Left Column - Map */}
-                <div>
+                <div className="map-column">
                     <FabMap />
                 </div>
 
                 {/* Right Column - Status & Alerts */}
-                <div>
+                <div className="side-column">
                     <StatusCard />
                     <AlertsCard />
                     <ControlToggles />
                 </div>
             </div>
 
-            {/* Bottom - Robot Details */}
-            <RobotDetails />
+            <div className="bottom-section">
+                <RobotDetails />
+            </div>
         </div>
     );
 }
