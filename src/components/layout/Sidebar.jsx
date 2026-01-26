@@ -5,6 +5,7 @@ import {
     Settings,
     User,
     StopCircle,
+    RefreshCw,
     AlertTriangle
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
@@ -12,8 +13,9 @@ import { useApi } from '../../hooks/useApi';
 
 function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
     const { selectedDeviceId } = useDevice();
-    const { emergencyStop } = useApi();
+    const { emergencyStop, emergencyClear } = useApi();
     const [isEmergencyLoading, setIsEmergencyLoading] = useState(false);
+    const [isStopped, setIsStopped] = useState(false);
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -28,11 +30,31 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
         try {
             await emergencyStop(selectedDeviceId);
             console.log('[UI] ✅ Emergency stop successful');
+            // Flip to stopped state so the UI shows a Restart action
+            setIsStopped(true);
         } catch (error) {
             console.error('[UI] ❌ Emergency stop failed:', error);
         } finally {
             setIsEmergencyLoading(false);
         }
+    };
+
+    const handleRestart = () => {
+        console.log('[UI] 🔁 Restart requested, clearing emergency and reloading app');
+        setIsEmergencyLoading(true);
+        // Try to clear emergency on the server, then reload.
+        emergencyClear(selectedDeviceId)
+            .then(() => {
+                console.log('[UI] ✅ Emergency cleared on server');
+            })
+            .catch((err) => {
+                console.error('[UI] ❌ Failed to clear emergency on server:', err);
+            })
+            .finally(() => {
+                setIsEmergencyLoading(false);
+                // Reload to re-init app state and re-sync
+                window.location.reload();
+            });
     };
 
     return (
@@ -95,12 +117,12 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                         Stops all active machinery immediately. Use only in EMERGENCIES
                     </p>
                     <button
-                        onClick={handleEmergencyStop}
+                        onClick={isStopped ? handleRestart : handleEmergencyStop}
                         disabled={isEmergencyLoading}
-                        className="emergency-btn"
+                        className={`emergency-btn ${isStopped ? 'restart' : ''}`}
                     >
-                        <StopCircle size={18} />
-                        {isEmergencyLoading ? 'STOPPING...' : 'EMERGENCY STOP'}
+                        {isStopped ? <RefreshCw size={18} /> : <StopCircle size={18} />}
+                        {isEmergencyLoading ? 'PROCESSING...' : (isStopped ? 'RESTART' : 'EMERGENCY STOP')}
                     </button>
                 </div>
             </aside>
