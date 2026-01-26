@@ -162,6 +162,43 @@ function StatusCard() {
 
     const env = currentDeviceData?.environment || {};
 
+    // Normalize metric keys and status/color helpers
+    const getMetricValue = (key) => {
+        if (key === 'temperature') return env.temperature ?? env.ambient_temp ?? env.temp ?? env.ambientTemp ?? null;
+        if (key === 'humidity') return env.humidity ?? env.ambient_hum ?? env.hum ?? env.ambientHum ?? null;
+        if (key === 'pressure') return env.pressure ?? env.atmospheric_pressure ?? env.atm_pressure ?? env.atmosphericPressure ?? null;
+        return null;
+    };
+
+    const getTemperatureStatus = (temp) => {
+        if (temp == null) return 'normal';
+        if (temp > 28) return 'critical';
+        if (temp > 25) return 'warning';
+        return 'normal';
+    };
+
+    const getHumidityStatus = (hum) => {
+        if (hum == null) return 'normal';
+        if (hum > 60 || hum < 30) return 'critical';
+        if (hum > 55 || hum < 35) return 'warning';
+        return 'normal';
+    };
+
+    const getPressureStatus = (p) => {
+        if (p == null) return 'normal';
+        if (p < 980 || p > 1050) return 'critical';
+        if (p < 990 || p > 1040) return 'warning';
+        return 'normal';
+    };
+
+    const getValueColorStyle = (status) => {
+        switch (status) {
+            case 'warning': return { color: '#D97706' };
+            case 'critical': return { color: '#DC2626' };
+            default: return { color: '#16A34A' };
+        }
+    };
+
     return (
         <div className="status-card">
             <div className="status-card-header">
@@ -172,15 +209,27 @@ function StatusCard() {
             </div>
             <div className="status-row">
                 <span className="label">Env Temperature:</span>
-                <span className="value">{env.ambient_temp != null ? `${Number(env.ambient_temp).toFixed(0)} C` : '-- C'}</span>
+                {(() => {
+                    const v = getMetricValue('temperature');
+                    const status = getTemperatureStatus(v);
+                    return <span className="value" style={getValueColorStyle(status)}>{v != null ? `${Number(v).toFixed(0)} C` : '-- C'}</span>;
+                })()}
             </div>
             <div className="status-row">
                 <span className="label">Humidity:</span>
-                <span className="value">{env.ambient_hum != null ? `${Number(env.ambient_hum).toFixed(0)}%` : '--%'}</span>
+                {(() => {
+                    const v = getMetricValue('humidity');
+                    const status = getHumidityStatus(v);
+                    return <span className="value" style={getValueColorStyle(status)}>{v != null ? `${Number(v).toFixed(0)}%` : '--%'}</span>;
+                })()}
             </div>
             <div className="status-row">
                 <span className="label">Atmp. Pressure:</span>
-                <span className="value">{env.atmospheric_pressure != null ? `${env.atmospheric_pressure} hPa` : '-- hPa'}</span>
+                {(() => {
+                    const v = getMetricValue('pressure');
+                    const status = getPressureStatus(v);
+                    return <span className="value" style={getValueColorStyle(status)}>{v != null ? `${v} hPa` : '-- hPa'}</span>;
+                })()}
             </div>
         </div>
     );

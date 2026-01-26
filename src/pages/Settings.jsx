@@ -68,6 +68,44 @@ function Settings() {
     // `currentRobots` is an object map in context — coerce to array for UI iteration
     const connectedRobots = Array.isArray(currentRobots) ? currentRobots : Object.values(currentRobots || {});
 
+    // Helper: normalize environment metric keys (supports different payload shapes)
+    const getMetricValue = (key) => {
+        const env = currentValues || {};
+        if (key === 'temperature') return env.temperature ?? env.ambient_temp ?? env.temp ?? env.ambientTemp ?? null;
+        if (key === 'humidity') return env.humidity ?? env.ambient_hum ?? env.hum ?? env.ambientHum ?? null;
+        if (key === 'pressure') return env.pressure ?? env.atmospheric_pressure ?? env.atm_pressure ?? env.atmosphericPressure ?? null;
+        return null;
+    };
+
+    // Status helpers (match logic used in DeviceEnvironmentPanel)
+    const getTemperatureStatus = (temp) => {
+        if (temp == null) return 'normal';
+        if (temp > 28) return 'critical';
+        if (temp > 25) return 'warning';
+        return 'normal';
+    };
+
+    const getHumidityStatus = (hum) => {
+        if (hum == null) return 'normal';
+        if (hum > 60 || hum < 30) return 'critical';
+        if (hum > 55 || hum < 35) return 'warning';
+        return 'normal';
+    };
+
+    const getPressureStatus = (p) => {
+        if (p == null) return 'normal';
+        if (p < 980 || p > 1050) return 'critical';
+        if (p < 990 || p > 1040) return 'warning';
+        return 'normal';
+    };
+
+    const getValueColorStyle = (status) => {
+        switch (status) {
+            case 'warning': return { color: '#D97706' };
+            case 'critical': return { color: '#DC2626' };
+            default: return { color: '#16A34A' };
+        }
+    };
     // 4. Handlers
 
     // Update Device/System Settings (Nested updates)
@@ -235,41 +273,56 @@ function Settings() {
                 </div>
 
                 {/* Expanded Threshold Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
                     {[
-                        { title: 'Temperature', current: currentValues.temperature != null ? `${Number(currentValues.temperature).toFixed(1)}°C` : '-- °C', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
-                        { title: 'Humidity', current: currentValues.humidity != null ? `${Number(currentValues.humidity).toFixed(1)}%` : '-- %', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
-                        { title: 'Pressure', current: currentValues.pressure != null ? `${currentValues.pressure} hPa` : '-- hPa', fields: [{ l: 'Min (hPa)', k: 'min' }, { l: 'Max (hPa)', k: 'max' }], key: 'pressure' },
-                        { title: 'Battery', current: 'Per Robot', fields: [{ l: 'Min (%)', k: 'min' }], key: 'battery' }
-                    ].map((card) => (
-                        <div key={card.title} style={{ background: 'white', borderRadius: '16px', padding: '16px 18px', border: '1px solid #F3F4F6' }}>
-                            <div style={{ borderBottom: '2px solid #7C3AED', paddingBottom: '8px', marginBottom: '12px' }}>
-                                <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1F2937', margin: 4 }}>{card.title}</h3>
-                                <p style={{ fontSize: '13px', color: '#6B7280', margin: 0 }}>Current: <span style={{ color: '#7C3AED', fontWeight: '600' }}>{card.current}</span></p>
+                        { title: 'Temperature', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
+                        { title: 'Humidity', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
+                        { title: 'Pressure', fields: [{ l: 'Min (hPa)', k: 'min' }, { l: 'Max (hPa)', k: 'max' }], key: 'pressure' }
+                    ].map((card) => {
+                        const raw = getMetricValue(card.key);
+                        let formatted;
+                        let status = 'normal';
+                        if (card.key === 'temperature') {
+                            formatted = raw != null ? `${Number(raw).toFixed(1)}°C` : '-- °C';
+                            status = getTemperatureStatus(raw);
+                        } else if (card.key === 'humidity') {
+                            formatted = raw != null ? `${Number(raw).toFixed(1)}%` : '-- %';
+                            status = getHumidityStatus(raw);
+                        } else if (card.key === 'pressure') {
+                            formatted = raw != null ? `${raw} hPa` : '-- hPa';
+                            status = getPressureStatus(raw);
+                        }
+
+                        return (
+                            <div key={card.title} style={{ background: 'white', borderRadius: '16px', padding: '16px 18px', border: '1px solid #F3F4F6' }}>
+                                <div style={{ borderBottom: '2px solid #F3F4F6', paddingBottom: '8px', marginBottom: '12px' }}>
+                                    <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1F2937', margin: 4 }}>{card.title}</h3>
+                                    <p style={{ fontSize: '13px', color: '#6B7280', margin: 0 }}>Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                                    {card.fields.map(f => (
+                                        <div key={f.k}>
+                                            <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>{f.l}</label>
+                                            <input
+                                                type="text"
+                                                value={settings[card.key]?.[f.k] || ''}
+                                                onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 12px',
+                                                    background: '#F3F4F6',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    fontWeight: '600'
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '12px' }}>
-                                {card.fields.map(f => (
-                                    <div key={f.k}>
-                                        <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>{f.l}</label>
-                                        <input
-                                            type="text"
-                                            value={settings[card.key]?.[f.k] || ''}
-                                            onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                background: '#F3F4F6',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                fontSize: '13px',
-                                                fontWeight: '600'
-                                            }}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Save Message & Action */}
