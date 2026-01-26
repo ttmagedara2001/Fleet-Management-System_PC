@@ -61,7 +61,7 @@ function Analysis() {
     const [activeMetrics, setActiveMetrics] = useState({
         temp: true,
         humidity: true,
-        battery: true
+        pressure: true
     });
 
     // Smart Insight Calculations
@@ -296,7 +296,6 @@ function Analysis() {
                                 timestamp: timestamp,
                                 temp: null,
                                 humidity: null,
-                                battery: null,
                                 pressure: null
                             };
                         }
@@ -324,7 +323,6 @@ function Analysis() {
                     fullTime: record.timestamp,
                     temp: record.temp,
                     humidity: record.humidity,
-                    battery: record.battery,
                     pressure: record.pressure
                 }))
                 .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime));
@@ -377,13 +375,13 @@ function Analysis() {
             return;
         }
 
-        const headers = ['Time', 'Full Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Battery (%)'];
+        const headers = ['Time', 'Full Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Pressure (hPa)'];
         const rows = chartData.map(row => [
             row.time,
             row.fullTime,
             row.temp ?? '',
             row.humidity ?? '',
-            row.battery ?? ''
+            row.pressure ?? ''
         ]);
 
         const csvContent = [
@@ -423,7 +421,7 @@ function Analysis() {
         statusBadge: { padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }
     };
 
-    const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED' };
+    const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED', pressure: '#3B82F6' };
 
     const getStatusStyle = (status) => {
         const s = status?.toLowerCase();
@@ -510,7 +508,7 @@ function Analysis() {
                     </div>
 
                     <div style={styles.legendGroup}>
-                        {['temp', 'humidity', 'battery'].map(metric => (
+                        {['temp', 'humidity', 'pressure'].map(metric => (
                             <div key={metric}
                                 style={{
                                     ...styles.legendItem,
@@ -522,7 +520,7 @@ function Analysis() {
                             >
                                 <div style={{ ...styles.legendDot, background: metricColors[metric] }} />
                                 <span style={{ color: activeMetrics[metric] ? 'inherit' : '#9CA3AF' }}>
-                                    {metric === 'temp' ? 'Temp' : metric.charAt(0).toUpperCase() + metric.slice(1)}
+                                    {metric === 'temp' ? 'Temp' : metric === 'pressure' ? 'Pressure' : metric.charAt(0).toUpperCase() + metric.slice(1)}
                                 </span>
                             </div>
                         ))}
@@ -559,7 +557,7 @@ function Analysis() {
                             <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} />
                             {activeMetrics.temp && <Line type="monotone" dataKey="temp" stroke={metricColors.temp} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />}
                             {activeMetrics.humidity && <Line type="monotone" dataKey="humidity" stroke={metricColors.humidity} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />}
-                            {activeMetrics.battery && <Line type="monotone" dataKey="battery" stroke={metricColors.battery} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />}
+                            {activeMetrics.pressure && <Line type="monotone" dataKey="pressure" stroke={metricColors.pressure} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />}
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
