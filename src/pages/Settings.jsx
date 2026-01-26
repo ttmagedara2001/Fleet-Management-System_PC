@@ -63,9 +63,10 @@ function Settings() {
     const [robotSaveMessage, setRobotSaveMessage] = useState(null);
 
     // 3. Derived Data
-    // Safely extract current values from streaming data
-    const currentValues = currentDeviceData || {};
-    const connectedRobots = currentRobots || [];
+    // Safely extract current environment values from streaming device data
+    const currentValues = (currentDeviceData && currentDeviceData.environment) || {};
+    // `currentRobots` is an object map in context — coerce to array for UI iteration
+    const connectedRobots = Array.isArray(currentRobots) ? currentRobots : Object.values(currentRobots || {});
 
     // 4. Handlers
 

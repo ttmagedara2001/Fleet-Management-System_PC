@@ -265,6 +265,60 @@ function Analysis() {
         }
     }, [selectedDeviceId, timeRange, deviceRobots]);
 
+    // Selected robot history state
+    const [selectedRobotForHistory, setSelectedRobotForHistory] = useState(deviceRobots[0]?.id || (deviceRobots[0] && deviceRobots[0].id) || null);
+    const [robotChartData, setRobotChartData] = useState([]);
+    const [activeRobotMetrics, setActiveRobotMetrics] = useState({ battery: true, temp: true });
+
+    const fetchRobotHistory = useCallback(async () => {
+        if (!selectedRobotForHistory) return;
+        try {
+            const { startTime, endTime } = getTimeRange(timeRange);
+
+            const [batRes, tempRes] = await Promise.all([
+                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/battery`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
+                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/temperature`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] }))
+            ]);
+
+            const dataByTimestamp = {};
+
+            const process = (records, type) => {
+                if (!Array.isArray(records)) return;
+                records.forEach(record => {
+                    try {
+                        const payload = JSON.parse(record.payload || '{}');
+                        const value = payload.value ?? payload.battery ?? payload.temperature ?? payload.temp ?? payload;
+                        const timestamp = record.timestamp;
+                        if (!dataByTimestamp[timestamp]) dataByTimestamp[timestamp] = { timestamp, battery: null, temp: null };
+                        if (type === 'battery') dataByTimestamp[timestamp].battery = Number(value);
+                        if (type === 'temp') dataByTimestamp[timestamp].temp = Number(value);
+                    } catch (e) { }
+                });
+            };
+
+            if (batRes.status === 'Success') process(batRes.data, 'battery');
+            if (tempRes.status === 'Success') process(tempRes.data, 'temp');
+
+            const transformed = Object.values(dataByTimestamp)
+                .map(r => ({
+                    time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+                    fullTime: r.timestamp,
+                    battery: r.battery,
+                    temp: r.temp
+                }))
+                .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime));
+
+            setRobotChartData(transformed);
+        } catch (err) {
+            console.error('[Analysis] ❌ Robot history fetch failed', err);
+            setRobotChartData([]);
+        }
+    }, [selectedDeviceId, selectedRobotForHistory, timeRange]);
+
+    useEffect(() => {
+        fetchRobotHistory();
+    }, [fetchRobotHistory]);
+
     // Fetch data from API
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -563,31 +617,49 @@ function Analysis() {
                 </div>
             </div>
 
-            {/* Smart Robot Status Overview Bar Chart */}
-            <div style={styles.chartCard} id="robot-sensors-card">
-                <div style={styles.chartHeader}>
+            {/* Robot Historical Trends */}
+            <div style={styles.chartCard} id="robot-history-card">
+                <div style={{ ...styles.chartHeader, alignItems: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span style={styles.chartTitle}>Live Robot Performance Matrix</span>
-                        <span style={{ fontSize: '12px', color: '#9CA3AF' }}>Comparing individual unit sustainability and thermal efficiency</span>
+                        <span style={styles.chartTitle}>Robot Historical Trends</span>
+                        <span style={{ fontSize: '12px', color: '#9CA3AF' }}>Battery and temperature over time for a selected robot</span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <select style={styles.select} value={selectedRobotForHistory || ''} onChange={(e) => setSelectedRobotForHistory(e.target.value)}>
+                            {deviceRobots.map(r => <option key={r.id} value={r.id}>{r.name || r.id}</option>)}
+                        </select>
+                        <div style={styles.legendGroup}>
+                            {['battery', 'temp'].map(metric => (
+                                <div key={metric}
+                                    style={{
+                                        ...styles.legendItem,
+                                        background: activeRobotMetrics[metric] ? '#F9FAFB' : '#FFF',
+                                        border: `1px solid ${activeRobotMetrics[metric] ? metricColors[metric] : '#E5E7EB'}`
+                                    }}
+                                    onClick={() => setActiveRobotMetrics(prev => ({ ...prev, [metric]: !prev[metric] }))}
+                                >
+                                    <div style={{ ...styles.legendDot, background: metricColors[metric] }} />
+                                    <span style={{ color: activeRobotMetrics[metric] ? 'inherit' : '#9CA3AF' }}>{metric === 'temp' ? 'Temp' : 'Battery'}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <button style={styles.exportBtn} onClick={fetchRobotHistory}><RefreshCw size={14} /> Refresh</button>
                     </div>
                 </div>
+
                 <div style={{ height: '400px', width: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartRobotData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <LineChart data={robotChartData} margin={{ top: 20, right: 60, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 13, fontWeight: 600, fill: '#4B5563' }} />
-                            {/* Left Y-Axis for Battery */}
-                            <YAxis yAxisId="left" orientation="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#7C3AED' }} unit="%" domain={[0, 100]} />
-                            {/* Right Y-Axis for Temperature */}
-                            <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#D97706' }} unit="°C" domain={[0, 50]} />
-                            <Tooltip
-                                cursor={{ fill: '#F9FAFB' }}
-                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
-                            />
-                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                            <Bar yAxisId="left" dataKey="battery" name="Battery Charge %" fill={metricColors.battery} radius={[6, 6, 0, 0]} barSize={40} />
-                            <Bar yAxisId="right" dataKey="temp" name="Core Temp °C" fill={metricColors.temp} radius={[6, 6, 0, 0]} barSize={40} />
-                        </BarChart>
+                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} />
+                            <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#7C3AED' }} unit="%" domain={[0, 100]} />
+                            <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#D97706' }} unit="°C" domain={[0, 60]} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} />
+                            <Legend />
+                            {activeRobotMetrics.battery && <Line yAxisId="left" type="monotone" dataKey="battery" stroke={metricColors.battery} strokeWidth={3} dot={false} activeDot={{ r: 6 }} name="Battery %" />}
+                            {activeRobotMetrics.temp && <Line yAxisId="right" type="monotone" dataKey="temp" stroke={metricColors.temp} strokeWidth={3} dot={false} activeDot={{ r: 6 }} name="Temp °C" />}
+                        </LineChart>
                     </ResponsiveContainer>
                 </div>
             </div>
@@ -602,8 +674,6 @@ function Analysis() {
                                 <th style={styles.th}>Robot ID</th>
                                 <th style={styles.th}>Name</th>
                                 <th style={styles.th}>Current Task</th>
-                                <th style={styles.th}>Battery</th>
-                                <th style={styles.th}>Temp</th>
                                 <th style={styles.th}>Status</th>
                             </tr>
                         </thead>
@@ -619,7 +689,7 @@ function Analysis() {
                                 if (displayData.length === 0) {
                                     return (
                                         <tr>
-                                            <td colSpan="6" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
+                                            <td colSpan="4" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
                                                 No fleet data available
                                             </td>
                                         </tr>
@@ -631,22 +701,16 @@ function Analysis() {
                                     const id = robot.id || robot.robotId;
                                     const name = robot.name || robot.robotName || id;
                                     const task = robot.task?.task || robot.task?.type || robot.taskName || 'Idle';
-                                    const battery = robot.status?.battery ?? robot.battery ?? 0;
-                                    const temp = robot.environment?.temp ?? robot.temp ?? robot.temperature ?? 0;
                                     const state = robot.status?.state ?? robot.status ?? 'Unknown';
 
                                     // Determine effective status
-                                    const isOnline = Boolean(battery > 0 || state.toUpperCase() !== 'UNKNOWN');
+                                    const isOnline = Boolean(state && String(state).toUpperCase() !== 'UNKNOWN');
 
                                     return (
                                         <tr key={idx}>
                                             <td style={styles.td}>{id}</td>
                                             <td style={{ ...styles.td, fontWeight: '600', color: '#1F2937' }}>{name}</td>
                                             <td style={styles.td}>{task}</td>
-                                            <td style={{ ...styles.td, color: battery < 30 ? '#EF4444' : '#059669', fontWeight: 'bold' }}>
-                                                {battery}%
-                                            </td>
-                                            <td style={styles.td}>{temp}°C</td>
                                             <td style={styles.td}>
                                                 <span style={{ ...styles.statusBadge, ...getStatusStyle(state) }}>
                                                     {state === 'Unknown' && isOnline ? 'ONLINE' : state}
