@@ -134,6 +134,21 @@ function FabMap() {
                                 className="status-dot"
                                 style={{ background: getStatusColor(robot) }}
                             />
+                            <div className="robot-hover">
+                                <div className="robot-hover-title">{robot.id}</div>
+                                <div className="robot-hover-row">
+                                    <span className="label">Lat:</span>
+                                    <span className="value">{hasLocation ? Number(robot.location.lat).toFixed(5) : '—'}</span>
+                                </div>
+                                <div className="robot-hover-row">
+                                    <span className="label">Lng:</span>
+                                    <span className="value">{hasLocation ? Number(robot.location.lng).toFixed(5) : '—'}</span>
+                                </div>
+                                <div className="robot-hover-row">
+                                    <span className="label">Bat:</span>
+                                    <span className="value">{robot.status?.battery != null ? `${robot.status.battery}%` : '--'}</span>
+                                </div>
+                            </div>
                         </div>
                     );
                 })}

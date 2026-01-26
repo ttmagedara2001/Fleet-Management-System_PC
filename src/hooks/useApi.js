@@ -156,7 +156,7 @@ export function useApi() {
     async (deviceId) => {
       console.log("[API Hook] 🚨 EMERGENCY STOP for device:", deviceId);
 
-      return updateDeviceState(deviceId, "emergency/stop", {
+      return updateDeviceState(deviceId, "fleetMS/emergencyStop", {
         emergency_stop: true,
         timestamp: new Date().toISOString(),
       });
@@ -171,7 +171,7 @@ export function useApi() {
     async (deviceId) => {
       console.log("[API Hook] 🔁 CLEAR EMERGENCY for device:", deviceId);
 
-      return updateDeviceState(deviceId, "emergency/stop", {
+      return updateDeviceState(deviceId, "fleetMS/emergencyStop", {
         emergency_stop: false,
         timestamp: new Date().toISOString(),
       });

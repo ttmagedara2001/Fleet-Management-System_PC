@@ -6,7 +6,9 @@ import {
     User,
     StopCircle,
     RefreshCw,
-    AlertTriangle
+    AlertTriangle,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
 import { useApi } from '../../hooks/useApi';
@@ -16,6 +18,12 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
     const { emergencyStop, emergencyClear } = useApi();
     const [isEmergencyLoading, setIsEmergencyLoading] = useState(false);
     const [isStopped, setIsStopped] = useState(false);
+    const [hideContent, setHideContent] = useState(() => {
+        try {
+            const raw = localStorage.getItem('sidebar_hide_content');
+            return raw === 'true';
+        } catch (e) { return false; }
+    });
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -77,7 +85,7 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                 />
             )}
 
-            <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+            <aside className={`sidebar ${isOpen ? 'open' : ''} ${hideContent ? 'collapsed' : ''}`}>
                 {/* User Profile */}
                 <div className="sidebar-user">
                     <div className="sidebar-user-avatar">
@@ -87,6 +95,17 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                         <h4>WELCOME!</h4>
                         <p>USER1233</p>
                     </div>
+                    <button
+                        className="sidebar-hide-toggle"
+                        onClick={() => {
+                            const next = !hideContent;
+                            setHideContent(next);
+                            try { localStorage.setItem('sidebar_hide_content', String(next)); } catch (e) {}
+                        }}
+                        title={hideContent ? 'Show sidebar content' : 'Hide sidebar content'}
+                    >
+                        {hideContent ? <Eye size={16} /> : <EyeOff size={16} />}
+                    </button>
                 </div>
 
                 {/* Navigation */}
