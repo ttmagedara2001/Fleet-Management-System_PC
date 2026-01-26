@@ -55,7 +55,7 @@ const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay',
 function Settings() {
     // 1. Context Access
     // Ensure selectedDeviceId is available from context for API calls
-    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId } = useDevice();
+    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState } = useDevice();
 
     // 2. Local State
     const [settings, setSettings] = useState(loadSettings());
@@ -246,7 +246,40 @@ function Settings() {
                         <span style={{ fontSize: '14px', fontWeight: '600', color: '#4B5563' }}>System Mode:</span>
                         <span style={{ fontSize: '14px', fontWeight: '800', color: '#7C3AED' }}>{settings.systemMode}</span>
                         <button
-                            onClick={() => updateDeviceSetting('systemMode', null, settings.systemMode === 'MANUAL' ? 'AUTOMATIC' : 'MANUAL')}
+                            onClick={async () => {
+                                // Optimistic UI update and send control request
+                                const prevMode = settings.systemMode;
+                                const newMode = prevMode === 'MANUAL' ? 'AUTOMATIC' : 'MANUAL';
+                                // Optimistically update local UI
+                                updateDeviceSetting('systemMode', null, newMode);
+
+                                if (!selectedDeviceId) {
+                                    setDeviceSaveMessage({ type: 'error', text: 'No device selected' });
+                                    setTimeout(() => setDeviceSaveMessage(null), 3000);
+                                    return;
+                                }
+
+                                try {
+                                    // Send update to device topic 'fleetMS/mode'
+                                    await updateStateDetails(selectedDeviceId, 'fleetMS/mode', { mode: newMode });
+
+                                    // After updating, refresh device state from API to sync local context
+                                    try {
+                                        if (refreshDeviceState) await refreshDeviceState();
+                                    } catch (err) {
+                                        console.warn('[Settings] ⚠️ Failed to refresh device state after mode update', err);
+                                    }
+
+                                    setDeviceSaveMessage({ type: 'success', text: `System mode set to ${newMode}` });
+                                } catch (err) {
+                                    console.error('[Settings] ❌ Failed to update system mode:', err);
+                                    // Revert optimistic change on failure
+                                    updateDeviceSetting('systemMode', null, prevMode);
+                                    setDeviceSaveMessage({ type: 'error', text: 'Failed to update system mode' });
+                                } finally {
+                                    setTimeout(() => setDeviceSaveMessage(null), 3000);
+                                }
+                            }}
                             style={{
                                 width: '48px',
                                 height: '26px',
