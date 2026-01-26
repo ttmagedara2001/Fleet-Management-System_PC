@@ -59,7 +59,7 @@ function FabMap() {
 
                 {/* Robot Markers */}
                 {robots.map((robot, index) => {
-                    // Check if robot has valid location data, otherwise put in Reset Position
+                    // Check if robot has valid location data
                     const hasLocation = robot.location &&
                         robot.location.lat !== null &&
                         robot.location.lng !== null &&
@@ -67,13 +67,25 @@ function FabMap() {
 
                     let x, y;
                     if (hasLocation) {
-                        x = 15 + (robot.location.lng || 0) * 70;
-                        y = 15 + (robot.location.lat || 0) * 70;
+                        // Map normalized 0-1 coordinates directly to map percentage
+                        // lng (0-1) -> x% (5% to 95% of map width)
+                        // lat (0-1) -> y% (5% to 95% of map height)
+                        x = 5 + (robot.location.lng * 90);  // 0 -> 5%, 1 -> 95%
+                        y = 5 + (robot.location.lat * 90);  // 0 -> 5%, 1 -> 95%
+
+                        console.log(`[Map] 📍 ${robot.id} at lat:${robot.location.lat}, lng:${robot.location.lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
                     } else {
-                        // Place in Reset Position zone (Ready)
-                        // Spread them out horizontally so all 5 are visible, slightly higher in the zone
-                        x = 68 + (index * 4.4);
-                        y = 86;
+                        // Spread robots across different functional zones by default
+                        const defaultPositions = [
+                            { x: 20, y: 25 }, // Cleanroom A
+                            { x: 60, y: 25 }, // Cleanroom B
+                            { x: 18, y: 72 }, // Loading Bay
+                            { x: 48, y: 72 }, // Storage
+                            { x: 78, y: 68 }  // Maintenance
+                        ];
+                        const pos = defaultPositions[index % defaultPositions.length];
+                        x = pos.x;
+                        y = pos.y;
                     }
 
                     return (
@@ -160,11 +172,11 @@ function StatusCard() {
             </div>
             <div className="status-row">
                 <span className="label">Env Temperature:</span>
-                <span className="value">{env.ambient_temp != null ? `${env.ambient_temp.toFixed(0)} C` : '-- C'}</span>
+                <span className="value">{env.ambient_temp != null ? `${Number(env.ambient_temp).toFixed(0)} C` : '-- C'}</span>
             </div>
             <div className="status-row">
                 <span className="label">Humidity:</span>
-                <span className="value">{env.ambient_hum != null ? `${env.ambient_hum.toFixed(0)}%` : '--%'}</span>
+                <span className="value">{env.ambient_hum != null ? `${Number(env.ambient_hum).toFixed(0)}%` : '--%'}</span>
             </div>
             <div className="status-row">
                 <span className="label">Atmp. Pressure:</span>
@@ -304,6 +316,13 @@ function RobotDetails() {
         return 'online';
     };
 
+    const getTempClass = (temp) => {
+        if (temp == null) return '';
+        if (temp > 32) return 'critical'; // Match DEFAULT_THRESHOLDS.temperature.critical
+        if (temp > 28) return 'warning';  // Match DEFAULT_THRESHOLDS.temperature.max
+        return 'normal';
+    };
+
     if (robots.length === 0) {
         return (
             <div className="robot-details-section">
@@ -337,14 +356,14 @@ function RobotDetails() {
                             <Bot size={32} />
                         </div>
                         <div className="robot-card-task">
-                            TASK: {robot.task?.type || '--'}
+                            TASK: {robot.task?.task || robot.task?.type || '--'}
                         </div>
                         <div className="robot-card-stats">
                             <div className={`robot-stat ${robot.status?.battery && robot.status.battery < 30 ? 'text-red-500' : 'battery'}`}>
                                 <Battery size={14} />
                                 {robot.status?.battery ? `${robot.status.battery}%` : '--'}
                             </div>
-                            <div className="robot-stat temp">
+                            <div className={`robot-stat temp ${getTempClass(robot.environment?.temp)}`}>
                                 <Thermometer size={14} />
                                 {robot.environment?.temp ? `${robot.environment.temp} C` : '--'}
                             </div>

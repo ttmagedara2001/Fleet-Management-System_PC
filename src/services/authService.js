@@ -6,77 +6,51 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
-// Credentials from environment variables for auto-login
 const CREDENTIALS = {
   email: import.meta.env.VITE_USER_EMAIL,
   password: import.meta.env.VITE_USER_PASSWORD,
 };
 
 /**
- * Auto-login: Calls /get-token API with hardcoded credentials
- * @returns {Promise<{jwtToken: string, refreshToken: string}>}
+ * Auto-login: Calls /user/get-token API with credentials from .env
+ * Returns a promise that resolves when login is complete
  */
 export async function login() {
   console.log("🔐 AUTO-LOGIN: Initiating authentication...");
-
   try {
-    const response = await fetch(`${API_BASE_URL}/get-token`, {
+    const response = await fetch(`${API_BASE_URL}/user/get-token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
+      credentials: "include",
       body: JSON.stringify({
         email: CREDENTIALS.email,
         password: CREDENTIALS.password,
       }),
     });
-
     if (!response.ok) {
       console.error("❌ Authentication Failed");
       throw new Error(`Login failed: ${response.status}`);
     }
-
-    const data = await response.json();
-
-    // Extract tokens (handle different response structures)
-    const jwtToken = data.data?.jwtToken || data.jwtToken || data.token;
-    const refreshToken = data.data?.refreshToken || data.refreshToken;
-
-    if (!jwtToken) {
-      throw new Error("No JWT token in response");
-    }
-
-    // Store token
-    localStorage.setItem("jwtToken", jwtToken);
-    if (refreshToken) {
-      localStorage.setItem("refreshToken", refreshToken);
-    }
-
     console.log("✅ AUTHENTICATION SUCCESSFUL");
-
-    return { jwtToken, refreshToken };
+    return true;
   } catch (error) {
     console.error("❌ AUTHENTICATION ERROR:", error.message);
     throw error;
   }
 }
 
-/**
- * Get stored JWT token
- */
-export function getToken() {
-  return localStorage.getItem("jwtToken");
-}
+// Immediately perform auto-login on module load
+export const autoLoginPromise = login();
 
-/**
- * Clear stored tokens
- */
+// No-op for getToken/clearTokens: all auth is now cookie-based
+export function getToken() {
+  return null;
+}
 export function clearTokens() {
-  localStorage.removeItem("jwtToken");
-  localStorage.removeItem("refreshToken");
-  console.log("🧹 Tokens cleared");
+  console.log("🧹 Tokens cleared (noop, cookie-based auth)");
 }
 
 export default { login, getToken, clearTokens };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Thermometer,
     Battery,
@@ -6,6 +6,7 @@ import {
     ChevronDown
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
+import { updateStateDetails } from '../services/api';
 
 // Default thresholds
 const DEFAULT_SETTINGS = {
@@ -23,7 +24,12 @@ const loadSettings = () => {
         const saved = localStorage.getItem('fabrix_settings');
         if (saved) {
             const parsed = JSON.parse(saved);
-            return { ...DEFAULT_SETTINGS, ...parsed };
+            // Deep merge to ensure new keys in DEFAULT are present
+            return {
+                ...DEFAULT_SETTINGS,
+                ...parsed,
+                robotSettings: { ...DEFAULT_SETTINGS.robotSettings, ...parsed.robotSettings }
+            };
         }
     } catch (error) {
         console.error('[Settings] ❌ Failed to load settings:', error);
@@ -47,78 +53,135 @@ const TASK_OPTIONS = ['Select Task', 'MOVE_FOUP', 'PICKUP', 'DELIVERY', 'RETURN_
 const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay', 'Storage', 'Maintenance'];
 
 function Settings() {
-    const { currentRobots, currentDeviceData } = useDevice();
+    // 1. Context Access
+    // Ensure selectedDeviceId is available from context for API calls
+    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId } = useDevice();
 
-    // Get current values from WebSocket data (no mock data)
-    const currentValues = {
-        temperature: currentDeviceData?.environment?.ambient_temp,
-        humidity: currentDeviceData?.environment?.ambient_hum,
-        pressure: currentDeviceData?.environment?.atmospheric_pressure,
-        battery: null // Battery is per-robot, not device-level
-    };
-
-    const [settings, setSettings] = useState(loadSettings);
+    // 2. Local State
+    const [settings, setSettings] = useState(loadSettings());
     const [deviceSaveMessage, setDeviceSaveMessage] = useState(null);
     const [robotSaveMessage, setRobotSaveMessage] = useState(null);
 
-    // Get connected robots list from WebSocket
-    const connectedRobots = Object.values(currentRobots || {});
+    // 3. Derived Data
+    // Safely extract current values from streaming data
+    const currentValues = currentDeviceData || {};
+    const connectedRobots = currentRobots || [];
 
-    const updateDeviceSetting = (category, field, value) => {
-        setSettings(prev => ({
-            ...prev,
-            [category]: field
-                ? { ...prev[category], [field]: Number(value) || value }
-                : value
-        }));
-        setDeviceSaveMessage(null);
+    // 4. Handlers
+
+    // Update Device/System Settings (Nested updates)
+    const updateDeviceSetting = (category, key, value) => {
+        setSettings(prev => {
+            // Handle System Mode (Root level)
+            if (key === null) {
+                return { ...prev, [category]: value };
+            }
+            // Handle Nested Settings (e.g., temperature.min)
+            return {
+                ...prev,
+                [category]: {
+                    ...prev[category],
+                    [key]: value
+                }
+            };
+        });
     };
 
-    const updateRobotSetting = (robotId, field, value) => {
+    // Update Robot Configuration
+    const updateRobotSetting = (robotId, key, value) => {
         setSettings(prev => ({
             ...prev,
             robotSettings: {
                 ...prev.robotSettings,
                 [robotId]: {
-                    ...prev.robotSettings?.[robotId],
-                    [field]: value
+                    ...(prev.robotSettings[robotId] || {}),
+                    [key]: value
                 }
             }
         }));
-        setRobotSaveMessage(null);
     };
 
-    const handleSaveDeviceSettings = () => {
-        const success = saveSettingsToStorage(settings);
-        if (success) {
-            setDeviceSaveMessage({ type: 'success', text: 'Device settings saved successfully!' });
-            setTimeout(() => setDeviceSaveMessage(null), 5000);
+    // Save Device Settings (Local + API for System Mode)
+    const handleSaveDeviceSettings = async () => {
+        saveSettingsToStorage(settings);
+
+        // If System Mode changed, sync it to the cloud
+        if (settings.systemMode && selectedDeviceId) {
+            try {
+                // Topic suffix for system mode
+                const topic = 'settings/systemMode';
+                const payload = { mode: settings.systemMode };
+                await updateStateDetails(selectedDeviceId, topic, payload);
+            } catch (err) {
+                console.error("Failed to sync system mode", err);
+            }
         }
+
+        setDeviceSaveMessage({ type: 'success', text: 'Device settings saved!' });
+        setTimeout(() => setDeviceSaveMessage(null), 3000);
     };
 
-    const handleSaveRobotSettings = () => {
-        const success = saveSettingsToStorage(settings);
-        if (success) {
-            setRobotSaveMessage({ type: 'success', text: 'Robot settings saved successfully!' });
-            setTimeout(() => setRobotSaveMessage(null), 5000);
+    // Save Robot Fleet Settings (API Sync)
+    const handleSaveRobotSettings = async () => {
+        // Save to local storage first
+        saveSettingsToStorage(settings);
+
+        if (!selectedDeviceId) {
+            setRobotSaveMessage({ type: 'error', text: 'No device selected for sync.' });
+            return;
         }
+
+        try {
+            // Send updates to API for each configured robot
+            const updates = Object.entries(settings.robotSettings || {}).map(async ([robotId, config]) => {
+                // Only send if a task is selected
+                if (!config.task || config.task === 'Select Task') return;
+
+                // Topic: fleetMS/robots/<RobotID>/task
+                // Note: According to docs, topic should be a suffix. 
+                // Adjusting based on your snippet's format.
+                const topic = `fleetMS/robots/${robotId}/task`;
+
+                // Payload structure
+                const payload = {
+                    "robotId": robotId,
+                    "task": config.task,
+                    "initiate location": config.source || "Unknown",
+                    "destination": config.destination || "Unknown"
+                };
+
+                // Optimistic update in context
+                if (updateRobotTaskLocal) {
+                    updateRobotTaskLocal(robotId, payload);
+                }
+
+                console.log(`[Settings] 🚀 Sending task update for ${robotId}:`, payload);
+                
+                // Call API Service
+                return updateStateDetails(selectedDeviceId, topic, payload);
+            });
+
+            await Promise.all(updates);
+            setRobotSaveMessage({ type: 'success', text: 'Robot fleet settings saved & synced!' });
+        } catch (error) {
+            console.error('[Settings] ❌ Failed to sync robot settings:', error);
+            setRobotSaveMessage({ type: 'error', text: 'Saved locally, but failed to sync online.' });
+        }
+
+        setTimeout(() => setRobotSaveMessage(null), 5000);
     };
 
-    // Get robot status from WebSocket payload
-    // Payload format: {"robot-status": "online"} or {"robot-status": "offline"}
+    // Helper: Get robot status
     const getRobotStatus = (robot) => {
-        // Check for robot-status field (from WebSocket payload)
         const robotStatus = robot?.['robot-status'] || robot?.robotStatus;
         if (robotStatus === 'online') return 'online';
         if (robotStatus === 'offline') return 'offline';
 
-        // Fallback to legacy status field
         const state = robot?.status?.state || robot?.status;
         if (state === 'Active' || state === 'online' || state === 'ACTIVE') return 'online';
         if (state === 'ERROR' || state === 'STOPPED' || state === 'offline') return 'offline';
         if (state === 'CHARGING' || state === 'IDLE' || state === 'Idle') return 'warning';
 
-        // Default to offline (red) if status is unknown
         return 'offline';
     };
 
@@ -173,8 +236,8 @@ function Settings() {
                 {/* Expanded Threshold Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
                     {[
-                        { title: 'Temperature', current: currentValues.temperature != null ? `${currentValues.temperature.toFixed(1)}°C` : '-- °C', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
-                        { title: 'Humidity', current: currentValues.humidity != null ? `${currentValues.humidity.toFixed(1)}%` : '-- %', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
+                        { title: 'Temperature', current: currentValues.temperature != null ? `${Number(currentValues.temperature).toFixed(1)}°C` : '-- °C', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
+                        { title: 'Humidity', current: currentValues.humidity != null ? `${Number(currentValues.humidity).toFixed(1)}%` : '-- %', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
                         { title: 'Pressure', current: currentValues.pressure != null ? `${currentValues.pressure} hPa` : '-- hPa', fields: [{ l: 'Min (hPa)', k: 'min' }, { l: 'Max (hPa)', k: 'max' }], key: 'pressure' },
                         { title: 'Battery', current: 'Per Robot', fields: [{ l: 'Min (%)', k: 'min' }], key: 'battery' }
                     ].map((card) => (

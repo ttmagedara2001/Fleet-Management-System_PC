@@ -1,0 +1,19 @@
+{
+    "location_update": {
+        "topic": "fleetMS/robots/R-001/location",
+        "payload": {
+            "robotId": "R-001",
+            "lat": 0.5,
+            "lng": 0.5,
+            "z": 10
+        }
+    },
+    "task_update": {
+        "topic": "fleetMS/robots/R-001/task",
+        "payload": {
+            "task": "MOVE_FOUP",
+            "initiate location": "Cleanroom A",
+            "destination": "Cleanroom B"
+        }
+    }
+}

@@ -64,6 +64,50 @@ function Analysis() {
         battery: true
     });
 
+    // Smart Insight Calculations
+    const fleetInsights = useMemo(() => {
+        const robotsArr = Object.values(currentRobots || {});
+        if (robotsArr.length === 0) return null;
+
+        const avgBattery = Math.round(robotsArr.reduce((acc, r) => acc + (r.status?.battery || 0), 0) / robotsArr.length);
+        const avgTemp = (robotsArr.reduce((acc, r) => acc + (r.environment?.temp || 0), 0) / robotsArr.length).toFixed(1);
+
+        const lowBattery = robotsArr.filter(r => (r.status?.battery || 100) < 30);
+        const highTemp = robotsArr.filter(r => (r.environment?.temp || 0) > 35);
+        const activeTasks = robotsArr.filter(r => r.task?.status === 'In Progress').length;
+
+        return {
+            avgBattery,
+            avgTemp,
+            lowBattery: lowBattery.length,
+            criticalUnit: lowBattery[0]?.name || highTemp[0]?.name || null,
+            highTemp: highTemp.length,
+            activeTasks,
+            totalRobots: robotsArr.length
+        };
+    }, [currentRobots]);
+
+    // Format currentRobots for the BarChart
+    const chartRobotData = useMemo(() => {
+        // Prioritize fetched sensor data if available (e.g. after refresh)
+        if (robotSensorData.length > 0) {
+            return robotSensorData.map(r => ({
+                name: r.name || r.robotId,
+                battery: r.battery || 0,
+                temp: r.temp || r.temperature || 0,
+                id: r.robotId
+            }));
+        }
+
+        // Fallback to live context data
+        return Object.values(currentRobots || {}).map(r => ({
+            name: r.name || r.id,
+            battery: r.status?.battery || 0,
+            temp: r.environment?.temp || 0,
+            id: r.id
+        }));
+    }, [currentRobots, robotSensorData]);
+
     // Get robots for current device
     const deviceRobots = useMemo(() => getRobotsForDevice(selectedDeviceId), [selectedDeviceId]);
 
@@ -157,88 +201,67 @@ function Analysis() {
 
     // Fetch robot sensor data for chart
     const fetchRobotSensorData = useCallback(async () => {
+        if (!deviceRobots.length) return;
+
         try {
             const { startTime, endTime } = getTimeRange(timeRange);
+            const sensorDataMap = {};
 
-            const response = await getDeviceStreamData(
-                selectedDeviceId,
-                startTime,
-                endTime,
-                "0",
-                "500"
-            );
+            // Initialize map with defaults
+            deviceRobots.forEach(r => {
+                sensorDataMap[r.id] = {
+                    robotId: r.id,
+                    name: r.name,
+                    battery: 0,
+                    temp: 0,
+                    status: 'Unknown'
+                };
+            });
 
-            if (response.status === 'Success' && response.data) {
-                const robotSensorMap = {};
+            // Fetch data for each robot
+            await Promise.all(deviceRobots.map(async (robot) => {
+                const robotId = robot.id;
 
-                response.data.forEach(record => {
-                    const topic = record.topicSuffix || '';
-                    const match = topic.match(/fleetMS\/robots\/([^/]+)\/(battery|temperature|humidity|status)/);
+                try {
+                    // Fetch Battery and Temp in parallel for this robot
+                    // Topic pattern: fleetMS/robots/<ID>/<metric>
+                    const [batRes, tempRes] = await Promise.all([
+                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/battery`, startTime, endTime).catch(() => null),
+                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/temperature`, startTime, endTime).catch(() => null)
+                    ]);
 
-                    if (match) {
-                        const robotId = match[1];
-                        const sensorType = match[2];
-
-                        try {
-                            const payload = JSON.parse(record.payload || '{}');
-                            const value = payload.value ?? payload;
-
-                            if (!robotSensorMap[robotId]) {
-                                const robotInfo = deviceRobots.find(r => r.id === robotId);
-                                robotSensorMap[robotId] = {
-                                    robotId,
-                                    name: robotInfo?.name || robotId,
-                                    battery: null,
-                                    temperature: null,
-                                    humidity: null,
-                                    status: 'Unknown'
-                                };
-                            }
-
-                            if (sensorType === 'battery') {
-                                robotSensorMap[robotId].battery = typeof value === 'number' ? value : parseFloat(value) || 0;
-                            } else if (sensorType === 'temperature') {
-                                robotSensorMap[robotId].temperature = typeof value === 'number' ? value : parseFloat(value) || 0;
-                            } else if (sensorType === 'humidity') {
-                                robotSensorMap[robotId].humidity = typeof value === 'number' ? value : parseFloat(value) || 0;
-                            } else if (sensorType === 'status') {
-                                robotSensorMap[robotId].status = value || 'Unknown';
-                            }
-                        } catch (e) {
-                            // Ignored
+                    // Helper to get latest value from valid response
+                    const getLatest = (res) => {
+                        if (res?.status === 'Success' && res.data?.length > 0) {
+                            // Sort by timestamp desc
+                            const sorted = res.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                            const latest = sorted[0];
+                            try {
+                                const payload = JSON.parse(latest.payload || '{}');
+                                return payload.value ?? payload.battery ?? payload.temperature ?? payload.temp ?? payload;
+                            } catch (e) { return 0; }
                         }
-                    }
-                });
+                        return null;
+                    };
 
-                const chartData = Object.values(robotSensorMap);
+                    const batVal = getLatest(batRes);
+                    const tempVal = getLatest(tempRes);
 
-                if (chartData.length === 0) {
-                    const defaultData = deviceRobots.map(robot => ({
-                        robotId: robot.id,
-                        name: robot.name,
-                        battery: Math.floor(Math.random() * 40) + 60,
-                        temperature: Math.floor(Math.random() * 10) + 20,
-                        humidity: Math.floor(Math.random() * 20) + 40,
-                        status: 'Active'
-                    }));
-                    setRobotSensorData(defaultData);
-                } else {
-                    setRobotSensorData(chartData);
+                    if (batVal !== null) sensorDataMap[robotId].battery = Number(batVal);
+                    if (tempVal !== null) sensorDataMap[robotId].temp = Number(tempVal);
+                    sensorDataMap[robotId].status = 'Active'; // Assume active if we have data?
+
+                } catch (e) {
+                    console.warn(`Failed to fetch sensors for ${robotId}`, e);
                 }
-                console.log(`[Analysis] ✅ Robot sensor data updated (${chartData.length || deviceRobots.length} robots)`);
-            } else {
-                const defaultData = deviceRobots.map(robot => ({
-                    robotId: robot.id,
-                    name: robot.name,
-                    battery: 80,
-                    temperature: 25,
-                    humidity: 50,
-                    status: 'Active'
-                }));
-                setRobotSensorData(defaultData);
-            }
+            }));
+
+            const chartData = Object.values(sensorDataMap);
+            setRobotSensorData(chartData);
+            console.log(`[Analysis] ✅ Robot sensor data updated (${chartData.length} robots)`);
+
         } catch (err) {
-            console.error('[Analysis] ❌ Robot sensor data fetch failed');
+            console.error('[Analysis] ❌ Robot sensor data fetch failed', err);
         }
     }, [selectedDeviceId, timeRange, deviceRobots]);
 
@@ -250,21 +273,22 @@ function Analysis() {
         const { startTime, endTime } = getTimeRange(timeRange);
 
         try {
-            const response = await getDeviceStreamData(
-                selectedDeviceId,
-                startTime,
-                endTime,
-                "0",
-                "500"
-            );
+            // Fetch specific topics in parallel
+            const [tempRes, humRes, pressRes] = await Promise.all([
+                getTopicStreamData(selectedDeviceId, 'fleetMS/temperature', startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
+                getTopicStreamData(selectedDeviceId, 'fleetMS/humidity', startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
+                getTopicStreamData(selectedDeviceId, 'fleetMS/pressure', startTime, endTime).catch(() => ({ status: 'Failed', data: [] }))
+            ]);
 
-            if (response.status === 'Success' && response.data && response.data.length > 0) {
-                const dataByTimestamp = {};
+            const dataByTimestamp = {};
 
-                response.data.forEach(record => {
+            const processRecords = (records, type) => {
+                if (!Array.isArray(records)) return;
+
+                records.forEach(record => {
                     try {
                         const payload = JSON.parse(record.payload || '{}');
-                        const value = payload.value;
+                        const value = payload.value ?? payload.temperature ?? payload.humidity ?? payload.pressure ?? payload;
                         const timestamp = record.timestamp;
 
                         if (!dataByTimestamp[timestamp]) {
@@ -277,36 +301,35 @@ function Analysis() {
                             };
                         }
 
-                        const topic = record.topicSuffix || '';
-                        if (topic.includes('temperature')) {
-                            dataByTimestamp[timestamp].temp = value;
-                        } else if (topic.includes('humidity')) {
-                            dataByTimestamp[timestamp].humidity = value;
-                        } else if (topic.includes('battery')) {
-                            dataByTimestamp[timestamp].battery = value;
-                        } else if (topic.includes('pressure')) {
-                            dataByTimestamp[timestamp].pressure = value;
-                        }
-                    } catch (parseError) {
-                        // Ignored
+                        if (type === 'temp') dataByTimestamp[timestamp].temp = value;
+                        if (type === 'humidity') dataByTimestamp[timestamp].humidity = value;
+                        if (type === 'pressure') dataByTimestamp[timestamp].pressure = value;
+                    } catch (e) {
+                        // ignore
                     }
                 });
+            };
 
-                const transformed = Object.values(dataByTimestamp)
-                    .map(record => ({
-                        time: new Date(record.timestamp).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true
-                        }),
-                        fullTime: record.timestamp,
-                        temp: record.temp,
-                        humidity: record.humidity,
-                        battery: record.battery,
-                        pressure: record.pressure
-                    }))
-                    .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime));
+            if (tempRes.status === 'Success') processRecords(tempRes.data, 'temp');
+            if (humRes.status === 'Success') processRecords(humRes.data, 'humidity');
+            if (pressRes.status === 'Success') processRecords(pressRes.data, 'pressure');
 
+            const transformed = Object.values(dataByTimestamp)
+                .map(record => ({
+                    time: new Date(record.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    }),
+                    fullTime: record.timestamp,
+                    temp: record.temp,
+                    humidity: record.humidity,
+                    battery: record.battery,
+                    pressure: record.pressure
+                }))
+                .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime));
+
+            if (transformed.length > 0) {
                 setChartData(transformed);
                 setDataSource('api');
                 console.log(`[Analysis] ✅ Historical data updated (${transformed.length} points)`);
@@ -314,8 +337,9 @@ function Analysis() {
                 setChartData([]);
                 setDataSource('empty');
             }
+
         } catch (err) {
-            console.error('[Analysis] ❌ Historical data fetch failed');
+            console.error('[Analysis] ❌ Historical data fetch failed:', err);
             setError(err.message || 'Failed to fetch data');
             setDataSource('error');
         } finally {
@@ -402,24 +426,80 @@ function Analysis() {
     const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED' };
 
     const getStatusStyle = (status) => {
-        switch (status) {
-            case 'Completed': return { background: '#D1FAE5', color: '#065F46' };
-            case 'In Progress': return { background: '#DBEAFE', color: '#1D4ED8' };
-            case 'Pending': return { background: '#FEF3C7', color: '#92400E' };
-            default: return { background: '#F3F4F6', color: '#6B7280' };
-        }
+        const s = status?.toLowerCase();
+        if (s?.includes('completed') || s?.includes('ready') || s?.includes('idle')) return { background: '#D1FAE5', color: '#065F46' };
+        if (s?.includes('progress') || s?.includes('active')) return { background: '#DBEAFE', color: '#1D4ED8' };
+        if (s?.includes('pending') || s?.includes('assigned')) return { background: '#FEF3C7', color: '#92400E' };
+        if (s?.includes('warning') || s?.includes('low')) return { background: '#FEE2E2', color: '#991B1B' };
+        return { background: '#F3F4F6', color: '#6B7280' };
     };
+
+    const InsightCard = ({ title, value, sub, color, icon: Icon }) => (
+        <div style={{
+            background: 'white',
+            padding: '20px',
+            borderRadius: '16px',
+            border: `1px solid ${color}20`,
+            flex: '1',
+            minWidth: '200px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+            position: 'relative',
+            overflow: 'hidden'
+        }}>
+            <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1, color }}>
+                {Icon && <Icon size={80} />}
+            </div>
+            <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px' }}>{title}</p>
+            <h3 style={{ fontSize: '28px', fontWeight: '700', color: '#1F2937' }}>{value}</h3>
+            <p style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '4px' }}>{sub}</p>
+        </div>
+    );
 
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <h1 style={styles.title}>Environmental Data | {selectedDeviceId}</h1>
+                <h1 style={styles.title}>Fleet Intelligence & Analysis</h1>
+                <p style={{ color: '#6B7280', fontSize: '14px' }}>Real-time sensor metrics and predictive fleet insights for {selectedDeviceId}</p>
             </div>
+
+            {/* Smart Insight Panel */}
+            {fleetInsights && (
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                    <InsightCard
+                        title="Avg Fleet Battery"
+                        value={`${fleetInsights.avgBattery}%`}
+                        sub={`${fleetInsights.lowBattery} robots need charging`}
+                        color="#7C3AED"
+                        icon={Battery}
+                    />
+                    <InsightCard
+                        title="Fleet Temperature"
+                        value={`${fleetInsights.avgTemp}°C`}
+                        sub={fleetInsights.highTemp > 0 ? `${fleetInsights.highTemp} units running hot` : "Optimal thermal range"}
+                        color="#D97706"
+                        icon={Thermometer}
+                    />
+                    <InsightCard
+                        title="Active Missions"
+                        value={fleetInsights.activeTasks}
+                        sub={`Out of ${fleetInsights.totalRobots} total units`}
+                        color="#059669"
+                        icon={RefreshCw}
+                    />
+                    <InsightCard
+                        title="System Health"
+                        value={fleetInsights.lowBattery > 0 ? "Caution" : "Nominal"}
+                        sub={fleetInsights.criticalUnit ? `Check ${fleetInsights.criticalUnit}` : "All systems stable"}
+                        color={fleetInsights.lowBattery > 0 ? "#EF4444" : "#22C55E"}
+                        icon={AlertCircle}
+                    />
+                </div>
+            )}
 
             <div style={styles.chartCard}>
                 <div style={styles.chartHeader}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                        <span style={styles.chartTitle}>Historical Trends of the Sensors</span>
+                        <span style={styles.chartTitle}>Historical Environmental Trends</span>
                         <div style={styles.filterGroup}>
                             <button style={{ ...styles.filterPill, ...(timeRange === '6h' ? styles.filterPillActive : {}) }} onClick={() => setTimeRange('6h')}>
                                 <Clock size={12} /> Last 6 Hours
@@ -467,6 +547,12 @@ function Analysis() {
                 <div style={{ height: '350px', width: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
+                            <defs>
+                                <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={metricColors.temp} stopOpacity={0.1} />
+                                    <stop offset="95%" stopColor={metricColors.temp} stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                             <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} tickMargin={10} />
                             <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} />
@@ -479,21 +565,30 @@ function Analysis() {
                 </div>
             </div>
 
-            {/* Robot Sensor Data Bar Chart */}
+            {/* Smart Robot Status Overview Bar Chart */}
             <div style={styles.chartCard} id="robot-sensors-card">
                 <div style={styles.chartHeader}>
-                    <span style={styles.chartTitle}>Robot Status Overview</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={styles.chartTitle}>Live Robot Performance Matrix</span>
+                        <span style={{ fontSize: '12px', color: '#9CA3AF' }}>Comparing individual unit sustainability and thermal efficiency</span>
+                    </div>
                 </div>
-                <div style={{ height: '300px', width: '100%' }}>
+                <div style={{ height: '400px', width: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={robotSensorData}>
+                        <BarChart data={chartRobotData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
-                            <Legend />
-                            <Bar dataKey="battery" name="Battery %" fill={metricColors.battery} radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="temperature" name="Temp °C" fill={metricColors.temp} radius={[4, 4, 0, 0]} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 13, fontWeight: 600, fill: '#4B5563' }} />
+                            {/* Left Y-Axis for Battery */}
+                            <YAxis yAxisId="left" orientation="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#7C3AED' }} unit="%" domain={[0, 100]} />
+                            {/* Right Y-Axis for Temperature */}
+                            <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#D97706' }} unit="°C" domain={[0, 50]} />
+                            <Tooltip
+                                cursor={{ fill: '#F9FAFB' }}
+                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                            <Bar yAxisId="left" dataKey="battery" name="Battery Charge %" fill={metricColors.battery} radius={[6, 6, 0, 0]} barSize={40} />
+                            <Bar yAxisId="right" dataKey="temp" name="Core Temp °C" fill={metricColors.temp} radius={[6, 6, 0, 0]} barSize={40} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
@@ -506,35 +601,63 @@ function Analysis() {
                     <table style={styles.table}>
                         <thead>
                             <tr>
-                                <th style={styles.th}>Task ID</th>
-                                <th style={styles.th}>Robot</th>
-                                <th style={styles.th}>Task Type</th>
-                                <th style={styles.th}>Destination</th>
-                                <th style={styles.th}>Priority</th>
+                                <th style={styles.th}>Robot ID</th>
+                                <th style={styles.th}>Name</th>
+                                <th style={styles.th}>Current Task</th>
+                                <th style={styles.th}>Battery</th>
+                                <th style={styles.th}>Temp</th>
                                 <th style={styles.th}>Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {robotData.length > 0 ? robotData.map((robot, idx) => (
-                                <tr key={idx}>
-                                    <td style={styles.td}>{robot.taskId || '--'}</td>
-                                    <td style={styles.td}>{robot.robotId}</td>
-                                    <td style={styles.td}>{robot.taskName}</td>
-                                    <td style={styles.td}>{robot.location}</td>
-                                    <td style={styles.td}>{robot.priority}</td>
-                                    <td style={styles.td}>
-                                        <span style={{ ...styles.statusBadge, ...getStatusStyle(robot.status) }}>
-                                            {robot.status}
-                                        </span>
-                                    </td>
-                                </tr>
-                            )) : (
-                                <tr>
-                                    <td colSpan="6" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
-                                        No task history available
-                                    </td>
-                                </tr>
-                            )}
+                            {(() => {
+                                // Merge data sources for table
+                                const liveRobots = Object.values(currentRobots || {});
+                                const hasLive = liveRobots.length > 0 && liveRobots.some(r => r.status?.battery > 0);
+
+                                // Source to render
+                                const displayData = hasLive ? liveRobots : robotSensorData;
+
+                                if (displayData.length === 0) {
+                                    return (
+                                        <tr>
+                                            <td colSpan="6" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
+                                                No fleet data available
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+
+                                return displayData.map((robot, idx) => {
+                                    // Normalize fields
+                                    const id = robot.id || robot.robotId;
+                                    const name = robot.name || robot.robotName || id;
+                                    const task = robot.task?.task || robot.task?.type || robot.taskName || 'Idle';
+                                    const battery = robot.status?.battery ?? robot.battery ?? 0;
+                                    const temp = robot.environment?.temp ?? robot.temp ?? robot.temperature ?? 0;
+                                    const state = robot.status?.state ?? robot.status ?? 'Unknown';
+
+                                    // Determine effective status
+                                    const isOnline = Boolean(battery > 0 || state.toUpperCase() !== 'UNKNOWN');
+
+                                    return (
+                                        <tr key={idx}>
+                                            <td style={styles.td}>{id}</td>
+                                            <td style={{ ...styles.td, fontWeight: '600', color: '#1F2937' }}>{name}</td>
+                                            <td style={styles.td}>{task}</td>
+                                            <td style={{ ...styles.td, color: battery < 30 ? '#EF4444' : '#059669', fontWeight: 'bold' }}>
+                                                {battery}%
+                                            </td>
+                                            <td style={styles.td}>{temp}°C</td>
+                                            <td style={styles.td}>
+                                                <span style={{ ...styles.statusBadge, ...getStatusStyle(state) }}>
+                                                    {state === 'Unknown' && isOnline ? 'ONLINE' : state}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                });
+                            })()}
                         </tbody>
                     </table>
                 </div>

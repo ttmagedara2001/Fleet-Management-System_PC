@@ -15,6 +15,15 @@ export const ROBOT_REGISTRY = {
         { id: 'R-004', name: 'Delta', type: 'Quality Control', zone: 'Zone D' },
         { id: 'R-005', name: 'Epsilon', type: 'Maintenance', zone: 'Zone E' }
     ],
+
+    // Device: devicetestuc
+    'devicetestuc': [
+        { id: 'R-001', name: 'Alpha', type: 'Transport', zone: 'Zone A' },
+        { id: 'R-002', name: 'Beta', type: 'Inspection', zone: 'Zone B' },
+        { id: 'R-003', name: 'Gamma', type: 'Assembly', zone: 'Zone C' },
+        { id: 'R-004', name: 'Delta', type: 'Quality Control', zone: 'Zone D' },
+        { id: 'R-005', name: 'Epsilon', type: 'Maintenance', zone: 'Zone E' }
+    ],
     
     // Device: device0011233
     'device0011233': [

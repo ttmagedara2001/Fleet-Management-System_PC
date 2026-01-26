@@ -23,12 +23,14 @@ export function AuthProvider({ children }) {
         try {
             // Clear any existing tokens first
             clearTokens();
-            
-            const result = await login();
-            setToken(result.jwtToken);
-            setError(null);
-            console.log('✅ Login successful!');
-            return result;
+
+            const success = await login();
+            if (success) {
+                setToken('COOKIE_AUTH_SESSION');
+                setError(null);
+                console.log('✅ Login successful!');
+                return success;
+            }
         } catch (err) {
             console.error('❌ Login failed:', err.message);
             setError(err.message);
@@ -49,7 +51,6 @@ export function AuthProvider({ children }) {
             const existingToken = getToken();
             if (existingToken) {
                 console.log('✅ Found existing token in storage');
-                console.log('🎫 Token length:', existingToken.length);
                 setToken(existingToken);
                 setIsLoading(false);
                 return;
@@ -58,9 +59,11 @@ export function AuthProvider({ children }) {
             // No existing token - perform fresh login
             console.log('📭 No existing token found, performing fresh login...');
             try {
-                const result = await login();
-                setToken(result.jwtToken);
-                setError(null);
+                const success = await login();
+                if (success) {
+                    setToken('COOKIE_AUTH_SESSION');
+                    setError(null);
+                }
             } catch (err) {
                 console.error('❌ Auto-login failed:', err.message);
                 setError(err.message);

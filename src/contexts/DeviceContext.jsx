@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { webSocketClient, TOPICS } from '../services/webSocketClient';
+import { connectWebSocket } from '../services/webSocketClient';
 import { getStateDetails } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
@@ -9,6 +9,7 @@ const DeviceContext = createContext(null);
 // Available devices
 const DEVICES = [
     { id: 'deviceTestUC', name: 'deviceTestUC', zone: 'Testing' },
+    { id: 'devicetestuc', name: 'devicetestuc', zone: 'Testing' },
     { id: 'device9988', name: 'Device 9988', zone: 'Cleanroom A' },
     { id: 'device0011233', name: 'Device 0011233', zone: 'Cleanroom B' },
     { id: 'deviceA72Q', name: 'Device A72Q', zone: 'Loading Bay' },
@@ -59,84 +60,8 @@ export function DeviceProvider({ children }) {
     const { token, isAuthenticated } = useAuth();
     const [isConnected, setIsConnected] = useState(false);
     const [connectionError, setConnectionError] = useState(null);
-    const connectionAttempted = useRef(false);
+    // WebSocket connection state managed near bottom of file
 
-    // WebSocket connection management
-    useEffect(() => {
-        let mounted = true;
-
-        async function connectWebSocket() {
-            if (!isAuthenticated || !token) {
-                console.log('[DeviceContext] ⏳ Waiting for authentication...');
-                return;
-            }
-
-            if (connectionAttempted.current && webSocketClient.connected) {
-                console.log('[DeviceContext] ✅ Already connected');
-                setIsConnected(true);
-                return;
-            }
-
-            console.log('[DeviceContext] 🔗 Initiating WebSocket connection...');
-            connectionAttempted.current = true;
-            setConnectionError(null);
-
-            try {
-                await webSocketClient.connect(token);
-
-                if (mounted) {
-                    setIsConnected(true);
-                    setConnectionError(null);
-                    console.log('[DeviceContext] ✅ WebSocket connection established!');
-                }
-            } catch (err) {
-                console.error('[DeviceContext] ❌ WebSocket connection failed:', err.message);
-                if (mounted) {
-                    setIsConnected(false);
-                    setConnectionError(err.message);
-                }
-            }
-        }
-
-        connectWebSocket();
-
-        return () => {
-            mounted = false;
-        };
-    }, [isAuthenticated, token]);
-
-    // Update connection status periodically
-    useEffect(() => {
-        const interval = setInterval(() => {
-            const currentStatus = webSocketClient.connected;
-            setIsConnected(currentStatus);
-        }, 3000);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (webSocketClient.connected) {
-                console.log('[DeviceContext] 🔌 Cleaning up WebSocket connection');
-                webSocketClient.disconnect();
-            }
-        };
-    }, []);
-
-    // Subscribe/unsubscribe wrappers
-    const subscribe = useCallback((topic, callback) => {
-        if (!webSocketClient.connected) {
-            console.warn('[DeviceContext] ⚠️ Cannot subscribe - not connected. Topic:', topic);
-            return null;
-        }
-        return webSocketClient.subscribe(topic, callback);
-    }, []);
-
-    const unsubscribe = useCallback((topic) => {
-        webSocketClient.unsubscribe(topic);
-    }, []);
 
     // Load persisted state from localStorage
     const [selectedDeviceId, setSelectedDeviceId] = useState(() => {
@@ -152,20 +77,7 @@ export function DeviceProvider({ children }) {
     });
 
     const [deviceData, setDeviceData] = useState(() => {
-        try {
-            const saved = localStorage.getItem('fabrix_deviceData');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                // Merge with defaults to ensure all devices exist
-                const merged = {};
-                DEVICES.forEach(device => {
-                    merged[device.id] = { ...DEFAULT_DEVICE_STATE, ...parsed[device.id] };
-                });
-                return merged;
-            }
-        } catch (e) {
-            console.error('[Device] Failed to load deviceData:', e);
-        }
+        // Initial state without localStorage
         const initial = {};
         DEVICES.forEach(device => {
             initial[device.id] = { ...DEFAULT_DEVICE_STATE };
@@ -173,7 +85,7 @@ export function DeviceProvider({ children }) {
         return initial;
     });
 
-    // Initialize robots state with registry data per device
+    // Initialize robots state with registry data per device (fresh start)
     const [robots, setRobots] = useState(() => {
         const buildInitialRobots = () => {
             const robotState = {};
@@ -191,24 +103,6 @@ export function DeviceProvider({ children }) {
             });
             return robotState;
         };
-
-        try {
-            const saved = localStorage.getItem('fabrix_robots');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                const merged = buildInitialRobots();
-                Object.keys(parsed).forEach(deviceId => {
-                    if (merged[deviceId]) {
-                        Object.assign(merged[deviceId], parsed[deviceId]);
-                    } else {
-                        merged[deviceId] = parsed[deviceId];
-                    }
-                });
-                return merged;
-            }
-        } catch (e) {
-            console.error('[Device] Failed to load robots:', e);
-        }
         return buildInitialRobots();
     });
 
@@ -222,7 +116,7 @@ export function DeviceProvider({ children }) {
         return [];
     });
 
-    const subscriptionsRef = useRef([]);
+
 
     // Persist selectedDeviceId to localStorage
     useEffect(() => {
@@ -233,29 +127,8 @@ export function DeviceProvider({ children }) {
         }
     }, [selectedDeviceId]);
 
-    // Persist deviceData to localStorage (debounced)
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            try {
-                localStorage.setItem('fabrix_deviceData', JSON.stringify(deviceData));
-            } catch (e) {
-                console.error('[Device] Failed to save deviceData:', e);
-            }
-        }, 1000);
-        return () => clearTimeout(timeout);
-    }, [deviceData]);
-
-    // Persist robots to localStorage (debounced)
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            try {
-                localStorage.setItem('fabrix_robots', JSON.stringify(robots));
-            } catch (e) {
-                console.error('[Device] Failed to save robots:', e);
-            }
-        }, 1000);
-        return () => clearTimeout(timeout);
-    }, [robots]);
+    // Note: deviceData and robots are NO LONGER persisted to localStorage
+    // to ensure dashboard starts fresh on reload as requested.
 
     // Persist alerts to localStorage (debounced)
     useEffect(() => {
@@ -600,10 +473,13 @@ export function DeviceProvider({ children }) {
     }, []);
 
     // Handle robot temperature updates
+    // Handle robot temperature updates
     const handleRobotTempUpdate = useCallback((deviceId, robotId, payload) => {
         console.log('[Device] 🤖🌡️ Robot temp update:', robotId, payload);
 
-        const temp = payload.temperature ?? payload.temp;
+        // Unwrap payload if nested (though routeStreamData does this, sometimes structure varies)
+        const data = payload.payload || payload;
+        const temp = data.temperature ?? data.temp;
 
         setRobots(prev => ({
             ...prev,
@@ -614,7 +490,7 @@ export function DeviceProvider({ children }) {
                     environment: {
                         ...prev[deviceId]?.[robotId]?.environment,
                         temp: temp ?? prev[deviceId]?.[robotId]?.environment?.temp,
-                        humidity: payload.humidity ?? prev[deviceId]?.[robotId]?.environment?.humidity
+                        humidity: data.humidity ?? prev[deviceId]?.[robotId]?.environment?.humidity
                     },
                     lastUpdate: Date.now()
                 }
@@ -632,6 +508,8 @@ export function DeviceProvider({ children }) {
             });
         }
     }, [addAlert]);
+
+
 
     // Handle robot status updates
     const handleRobotStatusUpdate = useCallback((deviceId, robotId, payload) => {
@@ -753,39 +631,45 @@ export function DeviceProvider({ children }) {
 
     // Handle robot task updates (both stream and state)
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
+        console.log(`[Device] 📋 Task update for ${robotId}:`, payload);
+
         // Ensure robot is registered
         setRobots(prev => {
             if (!prev[deviceId]?.[robotId]) {
-                return {
-                    ...prev,
-                    [deviceId]: {
-                        ...prev[deviceId],
-                        [robotId]: {
-                            id: robotId,
-                            location: { lat: 0, lng: 0, z: 0 },
-                            heading: 0,
-                            environment: { temp: null, humidity: null },
-                            status: { battery: null, load: null, state: 'UNKNOWN' },
-                            task: null,
-                            lastUpdate: Date.now()
-                        }
-                    }
-                };
+                // ... (auto-register logic if needed, but usually strict)
+                return prev;
             }
             return prev;
         });
 
-        setRobots(prev => ({
-            ...prev,
-            [deviceId]: {
-                ...prev[deviceId],
-                [robotId]: {
-                    ...prev[deviceId]?.[robotId],
-                    task: payload,
-                    lastUpdate: Date.now()
-                }
+        setRobots(prev => {
+            const currentRobot = prev[deviceId]?.[robotId];
+            if (!currentRobot) return prev; // Should be handled above, but safety check
+
+            // normalize task data
+            let taskData = payload;
+            if (typeof payload === 'string') {
+                taskData = { type: payload, task: payload };
+            } else if (typeof payload === 'object') {
+                // Ensure 'type' exists for UI compatibility (Dashboard looks for task.type)
+                taskData = {
+                    ...payload,
+                    type: payload.task || payload.type || 'Unknown'
+                };
             }
-        }));
+
+            return {
+                ...prev,
+                [deviceId]: {
+                    ...prev[deviceId],
+                    [robotId]: {
+                        ...currentRobot,
+                        task: taskData,
+                        lastUpdate: Date.now()
+                    }
+                }
+            };
+        });
     }, []);
 
     // Handle robot online/offline status updates
@@ -828,116 +712,163 @@ export function DeviceProvider({ children }) {
         setAlerts([]);
     }, []);
 
-    // Subscribe to SELECTED device streams when connected or device changes
+    // Manage WebSocket Connection & Routing
     useEffect(() => {
-        if (!isConnected) {
-            console.log('[FleetMS] ⏳ Waiting for STOMP connection...');
-            return;
-        }
+        if (!isAuthenticated) return;
 
         const deviceId = selectedDeviceId;
-        const device = DEVICES.find(d => d.id === deviceId);
+        console.log(`[Device] 🔗 Connecting WebSocket for device: ${deviceId}`);
 
-        console.log(`[Device] 🔌 Subscribing to device: ${deviceId} (${device?.name || 'Unknown'})`);
-
-        // Helper function to route incoming data based on payload structure
+        // Data Routing Logic
+        // Data Routing Logic
         const routeStreamData = (payload) => {
+            let effectivePayload = payload;
+            let topicPath = payload.topicSuffix || payload.topic || '';
 
-            // Check for device-level data
-            if (payload.ambient_temp !== undefined || payload.temperature !== undefined) {
-                handleTemperatureUpdate(deviceId, payload);
+            if (payload.payload && typeof payload.payload === 'object') {
+                effectivePayload = payload.payload;
             }
 
-            // Check for robot discovery
-            if (payload.robots !== undefined || payload.robotId !== undefined) {
-                handleRobotsDiscovery(deviceId, payload);
+            console.log(`[Device] 📨 Received stream data. Topic: ${topicPath}`);
+
+            // 1. Device Environment Updates (Strict Topic Check)
+            if (topicPath === 'fleetMS/temperature' ||
+                topicPath === 'fleetMS/humidity' ||
+                topicPath === 'fleetMS/pressure') {
+                handleTemperatureUpdate(deviceId, effectivePayload);
+                return;
             }
 
-            // Check for robot-specific data (when topic path includes robot ID in payload or topic metadata)
-            // Robot location data: { robotId, lat, lng, z, heading }
-            if (payload.robotId && (payload.lat !== undefined || payload.location !== undefined)) {
-                handleRobotLocationUpdate(deviceId, payload.robotId, payload.location || payload);
+            // 2. Robot Updates (Flexible Pattern Matching)
+            // Pattern: fleetMS/robots/<robotId>[/<metric>]
+            // Matches "robots/R-001" AND "robots/R-001/temperature"
+            const robotMatch = topicPath.match(/robots\/([^/]+)(?:\/(.+))?$/);
+
+            if (robotMatch) {
+                const robotId = robotMatch[1];
+                const metricFromTopic = robotMatch[2]; // undefined if no suffix
+
+                console.log(`[Device] 🤖 Robot update. ID: ${robotId}, Topic Metric: ${metricFromTopic || 'None (Inferring)'}`);
+
+                // Helper to dispatch based on metric or payload keys
+                const dispatchRobotUpdate = (metric, data) => {
+                    switch (metric) {
+                        case 'temperature':
+                        case 'temp':
+                            handleRobotTempUpdate(deviceId, robotId, data);
+                            break;
+                        case 'battery':
+                            handleRobotBatteryUpdate(deviceId, robotId, data);
+                            break;
+                        case 'location':
+                            handleRobotLocationUpdate(deviceId, robotId, data);
+                            break;
+                        case 'status':
+                        case 'state':
+                            handleRobotStatusUpdate(deviceId, robotId, data);
+                            break;
+                        case 'task':
+                            handleRobotTaskUpdate(deviceId, robotId, data);
+                            break;
+                        default:
+                            console.warn(`[Device] Unhandled robot metric: ${metric}`);
+                    }
+                };
+
+                // Case A: Metric is in validity topic (e.g. .../temperature)
+                if (metricFromTopic) {
+                    dispatchRobotUpdate(metricFromTopic, effectivePayload);
+                    return;
+                }
+
+                // Case B: No metric in topic, infer from payload keys
+                // Check all likely keys
+                if (effectivePayload.temperature !== undefined || effectivePayload.temp !== undefined) {
+                    dispatchRobotUpdate('temperature', effectivePayload);
+                }
+                if (effectivePayload.battery !== undefined || effectivePayload.level !== undefined) {
+                    dispatchRobotUpdate('battery', effectivePayload);
+                }
+                if (effectivePayload.lat !== undefined || effectivePayload.lng !== undefined || effectivePayload.location !== undefined) {
+                    dispatchRobotUpdate('location', effectivePayload);
+                }
+                if (effectivePayload.status !== undefined || effectivePayload.state !== undefined) {
+                    dispatchRobotUpdate('status', effectivePayload);
+                }
+                if (effectivePayload.task !== undefined) {
+                    dispatchRobotUpdate('task', effectivePayload);
+                }
+                return;
             }
 
-            // Robot temperature: { robotId, temperature }
-            if (payload.robotId && payload.temperature !== undefined && !payload.ambient_temp) {
-                handleRobotTempUpdate(deviceId, payload.robotId, payload);
+            // 3. Fallback / legacy routing (if no specific topic matches, try to infer from payload)
+            // This ensures robust handling if topic is missing or different
+            if (effectivePayload.robots !== undefined || effectivePayload.robotId !== undefined) {
+                // Discovery or direct payload update
+                if (effectivePayload.robots) {
+                    handleRobotsDiscovery(deviceId, effectivePayload);
+                } else if (effectivePayload.robotId) {
+                    // Routing based on payload content + robotId presence
+                    const rId = effectivePayload.robotId;
+                    if (effectivePayload.lat !== undefined || effectivePayload.location !== undefined) {
+                        handleRobotLocationUpdate(deviceId, rId, effectivePayload.location || effectivePayload);
+                    }
+                    if (effectivePayload.temperature !== undefined && !effectivePayload.ambient_temp) {
+                        handleRobotTempUpdate(deviceId, rId, effectivePayload);
+                    }
+                    if (effectivePayload.status !== undefined || effectivePayload.state !== undefined) {
+                        handleRobotStatusUpdate(deviceId, rId, effectivePayload);
+                    }
+                    if (effectivePayload.battery !== undefined || effectivePayload.level !== undefined) {
+                        handleRobotBatteryUpdate(deviceId, rId, effectivePayload);
+                    }
+                    if (effectivePayload.task !== undefined || effectivePayload.tasks !== undefined) {
+                        handleRobotTaskUpdate(deviceId, rId, effectivePayload);
+                    }
+                }
+            } else if (!topicPath) {
+                // Only attempt to guess device env data if NO topic path was present to avoid double handling
+                if (effectivePayload.ambient_temp !== undefined || effectivePayload.temperature !== undefined) {
+                    handleTemperatureUpdate(deviceId, effectivePayload);
+                }
             }
 
-            // Robot status: { robotId, status, load, state }
-            if (payload.robotId && (payload.status !== undefined || payload.state !== undefined)) {
-                handleRobotStatusUpdate(deviceId, payload.robotId, payload);
-            }
-
-            // Robot battery: { robotId, battery, level }
-            if (payload.robotId && (payload.battery !== undefined || payload.level !== undefined)) {
-                handleRobotBatteryUpdate(deviceId, payload.robotId, payload);
-            }
-
-            // Robot tasks: { robotId, task, tasks }
-            if (payload.robotId && (payload.task !== undefined || payload.tasks !== undefined)) {
-                handleRobotTaskUpdate(deviceId, payload.robotId, payload);
-            }
-
-            // Robot online/offline status: { "robot-status": "online" | "offline", "robotId": "R-001" }
-            if (payload['robot-status'] !== undefined || payload.robotStatus !== undefined) {
-                const status = payload['robot-status'] || payload.robotStatus;
-                const robotId = payload.robotId || payload.robot_id || 'unknown';
-                handleRobotOnlineStatus(deviceId, robotId, status);
-            }
-
-            // Also update general device data for any stream message
-            handleDeviceStatusUpdate(deviceId, payload);
+            // Always check for device status / alerts in any payload
+            handleDeviceStatusUpdate(deviceId, effectivePayload);
         };
 
         const routeStateData = (payload) => {
-
-            // Check for device control states
             if (payload.ac_power !== undefined || payload.ac !== undefined) {
                 handleACUpdate(deviceId, payload);
             }
-
             if (payload.air_purifier !== undefined || payload.airPurifier !== undefined) {
                 handleAirPurifierUpdate(deviceId, payload);
             }
-
-            // Check for robot state updates (task assignments, etc.)
             if (payload.robotId && payload.task !== undefined) {
                 handleRobotTaskUpdate(deviceId, payload.robotId, payload);
             }
-
-            // Always update device status with state data
             handleDeviceStatusUpdate(deviceId, payload);
         };
 
-        // Subscribe to the two main topics ONLY
-        // 1. Stream topic - for temperature, robots discovery, robot telemetry, etc.
-        const streamTopic = TOPICS.STREAM(deviceId);
-        console.log('📡 Stream:', streamTopic);
-        subscribe(streamTopic, routeStreamData);
-        subscriptionsRef.current.push(streamTopic);
-
-        // 2. State topic - for AC, air purifier, device status, robot commands, etc.
-        const stateTopic = TOPICS.STATE(deviceId);
-        console.log('📊 State: ', stateTopic);
-        subscribe(stateTopic, routeStateData);
-        subscriptionsRef.current.push(stateTopic);
-
-        console.log(`[Device] ✅ Subscriptions complete for ${deviceId}`);
-        console.log('   All robot data will be routed through these topics');
-        console.log('');
+        const client = connectWebSocket(
+            deviceId,
+            routeStreamData,
+            routeStateData,
+            () => {
+                setIsConnected(true);
+                setConnectionError(null);
+            },
+            () => {
+                setIsConnected(false);
+            }
+        );
 
         return () => {
-            console.log('');
-            console.log('🧹 [FleetMS] Cleaning up subscriptions for device:', deviceId);
-            subscriptionsRef.current.forEach(topic => {
-                unsubscribe(topic);
-            });
-            subscriptionsRef.current = [];
-            console.log('✅ [FleetMS] Cleanup complete');
-            console.log('');
+            console.log('[DeviceContext] 🔌 Disconnecting WebSocket');
+            client.deactivate();
+            setIsConnected(false);
         };
-    }, [isConnected, selectedDeviceId, subscribe, unsubscribe, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate]);
+    }, [isAuthenticated, selectedDeviceId, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate, handleRobotOnlineStatus]);
 
     // Note: Robot subscriptions removed - all data comes through main STREAM/STATE topics
 
@@ -974,6 +905,11 @@ export function DeviceProvider({ children }) {
         }
     }, [selectedDeviceId]);
 
+    // Optimistic update helper
+    const updateRobotTaskLocal = useCallback((robotId, taskPayload) => {
+        handleRobotTaskUpdate(selectedDeviceId, robotId, taskPayload);
+    }, [selectedDeviceId, handleRobotTaskUpdate]);
+
     const value = {
         // WebSocket connection state
         isConnected,
@@ -997,7 +933,8 @@ export function DeviceProvider({ children }) {
 
         // Robot management
         registerRobot,
-        refreshDeviceState
+        refreshDeviceState,
+        updateRobotTaskLocal // Exposed helper
     };
 
     return (
