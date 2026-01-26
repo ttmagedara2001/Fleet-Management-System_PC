@@ -30,6 +30,33 @@ function FabMap() {
         { id: 'parking', name: 'Reset Position (Ready)', left: '65%', top: '82%', width: '25%', height: '10%', type: 'reset' },
     ];
 
+    // Facility GPS bounds (example) - adjust to your site for accurate placement.
+    // These should be set to the rectangle that covers the whole facility map.
+    // Format: { minLat, maxLat, minLng, maxLng }
+    const FACILITY_BOUNDS = {
+        // Example coordinates (small area near 37.422, -122.084). Replace with real values.
+        minLat: 37.4215,
+        maxLat: 37.4230,
+        minLng: -122.0850,
+        maxLng: -122.0830
+    };
+
+    // Convert GPS lat/lng to map percentages. Returns { xPercent, yPercent } between ~5..95
+    const gpsToPercent = (lat, lng) => {
+        const { minLat, maxLat, minLng, maxLng } = FACILITY_BOUNDS;
+        // Clamp values
+        const clampedLat = Math.max(Math.min(lat, maxLat), minLat);
+        const clampedLng = Math.max(Math.min(lng, maxLng), minLng);
+
+        // X is longitude (west->east), Y is latitude (north->south so invert)
+        const xRatio = (clampedLng - minLng) / (maxLng - minLng || 1);
+        const yRatio = (maxLat - clampedLat) / (maxLat - minLat || 1); // invert lat so larger lat = top
+
+        const x = 5 + xRatio * 90; // map to 5%..95%
+        const y = 5 + yRatio * 90;
+        return { xPercent: x, yPercent: y };
+    };
+
     const getStatusColor = (robot) => {
         const state = robot?.status?.state?.toUpperCase();
         if (state === 'ERROR' || state === 'STOPPED') return '#EF4444';
@@ -58,7 +85,7 @@ function FabMap() {
                 ))}
 
                 {/* Robot Markers */}
-                {robots.map((robot, index) => {
+                    {robots.map((robot, index) => {
                     // Check if robot has valid location data
                     const hasLocation = robot.location &&
                         robot.location.lat !== null &&
@@ -67,15 +94,22 @@ function FabMap() {
 
                     let x, y;
                     if (hasLocation) {
-                        // Map normalized 0-1 coordinates directly to map percentage
-                        // lng (0-1) -> x% (5% to 95% of map width)
-                        // lat (0-1) -> y% (5% to 95% of map height)
-                        x = 5 + (robot.location.lng * 90);  // 0 -> 5%, 1 -> 95%
-                        y = 5 + (robot.location.lat * 90);  // 0 -> 5%, 1 -> 95%
-
-                        console.log(`[Map] 📍 ${robot.id} at lat:${robot.location.lat}, lng:${robot.location.lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
+                        // If coordinates look like GPS (lat between -90..90 and lng between -180..180), use gpsToPercent
+                        const lat = Number(robot.location.lat);
+                        const lng = Number(robot.location.lng);
+                        if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+                            const p = gpsToPercent(lat, lng);
+                            x = p.xPercent;
+                            y = p.yPercent;
+                            console.log(`[Map] 📍 ${robot.id} GPS lat:${lat}, lng:${lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
+                        } else {
+                            // Fallback: treat lat/lng as normalized 0..1 coordinates
+                            x = 5 + (robot.location.lng * 90);  // 0 -> 5%, 1 -> 95%
+                            y = 5 + (robot.location.lat * 90);  // 0 -> 5%, 1 -> 95%
+                            console.log(`[Map] 📍 ${robot.id} normalized lat:${robot.location.lat}, lng:${robot.location.lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
+                        }
                     } else {
-                        // Spread robots across different functional zones by default
+                        // Spread robots across different functional zones by default (fallback positions)
                         const defaultPositions = [
                             { x: 20, y: 25 }, // Cleanroom A
                             { x: 60, y: 25 }, // Cleanroom B
@@ -269,49 +303,63 @@ function AlertsCard() {
 
 // Control Toggles Component
 function ControlToggles() {
-    const { currentDeviceData, selectedDeviceId } = useDevice();
+    const { currentDeviceData, selectedDeviceId, refreshDeviceState } = useDevice();
     const state = currentDeviceData?.state || {};
     const [isLoading, setIsLoading] = useState({ ac: false, airPurifier: false });
+    const [overrides, setOverrides] = useState({ ac: null, airPurifier: null });
 
-    // Use WebSocket state or default to false
-    const acEnabled = state.ac_power === 'ON' || state.ac_power === 'ACTIVE';
-    const airPurifierEnabled = state.air_purifier === 'ON' || state.air_purifier === 'ACTIVE';
+    // Use WebSocket state or override (optimistic)
+    const acValue = overrides.ac ?? state.ac_power;
+    const airPurifierValue = overrides.airPurifier ?? state.air_purifier;
+    const acEnabled = acValue === 'ON' || acValue === 'ACTIVE';
+    const airPurifierEnabled = airPurifierValue === 'ON' || airPurifierValue === 'ACTIVE';
 
-    // Handle AC toggle
+    // Read system mode from saved settings (fallback to MANUAL)
+    const savedRaw = localStorage.getItem('fabrix_settings');
+    const saved = savedRaw ? JSON.parse(savedRaw) : {};
+    const systemMode = (saved.systemMode || 'MANUAL').toUpperCase();
+    const isAuto = systemMode === 'AUTOMATIC' || systemMode === 'AUTO';
+
+    const acDisplay = acValue ? (acValue.toString().toUpperCase() === 'ON' || acValue.toString().toUpperCase() === 'ACTIVE' ? 'ON' : acValue) : 'OFF';
+    const airPurifierDisplay = airPurifierValue ? (airPurifierValue.toString().toUpperCase() === 'ON' || airPurifierValue.toString().toUpperCase() === 'ACTIVE' ? 'ON' : airPurifierValue) : 'OFF';
+
+    // Handle AC toggle (optimistic)
     const handleACToggle = async () => {
+        const desiredOn = !(acValue === 'ON' || acValue === 'ACTIVE');
+        const desiredState = desiredOn ? 'ON' : 'OFF';
+        setOverrides(prev => ({ ...prev, ac: desiredState }));
         setIsLoading(prev => ({ ...prev, ac: true }));
+
         try {
-            const newState = !acEnabled;
-            console.log(`[Dashboard] 🔄 Toggling AC to ${newState ? 'ON' : 'OFF'} for device: ${selectedDeviceId}`);
-
-            const result = await toggleAC(selectedDeviceId, newState);
-            console.log('[Dashboard] ✅ AC toggle result:', result);
-
-            // State will update via WebSocket
+            await toggleAC(selectedDeviceId, desiredOn);
+            if (refreshDeviceState) await refreshDeviceState();
         } catch (error) {
             console.error('[Dashboard] ❌ Failed to toggle AC:', error);
+            setOverrides(prev => ({ ...prev, ac: null }));
             alert('Failed to toggle AC. Please try again.');
         } finally {
             setIsLoading(prev => ({ ...prev, ac: false }));
+            setTimeout(() => setOverrides(prev => ({ ...prev, ac: null })), 3000);
         }
     };
 
-    // Handle Air Purifier toggle
+    // Handle Air Purifier toggle (optimistic)
     const handleAirPurifierToggle = async () => {
+        const desiredOn = !(airPurifierValue === 'ON' || airPurifierValue === 'ACTIVE');
+        const desiredState = desiredOn ? 'ACTIVE' : 'INACTIVE';
+        setOverrides(prev => ({ ...prev, airPurifier: desiredState }));
         setIsLoading(prev => ({ ...prev, airPurifier: true }));
+
         try {
-            const newMode = airPurifierEnabled ? 'INACTIVE' : 'ACTIVE';
-            console.log(`[Dashboard] 🔄 Setting Air Purifier to ${newMode} for device: ${selectedDeviceId}`);
-
-            const result = await setAirPurifier(selectedDeviceId, newMode);
-            console.log('[Dashboard] ✅ Air purifier result:', result);
-
-            // State will update via WebSocket
+            await setAirPurifier(selectedDeviceId, desiredState);
+            if (refreshDeviceState) await refreshDeviceState();
         } catch (error) {
             console.error('[Dashboard] ❌ Failed to toggle Air Purifier:', error);
+            setOverrides(prev => ({ ...prev, airPurifier: null }));
             alert('Failed to toggle Air Purifier. Please try again.');
         } finally {
             setIsLoading(prev => ({ ...prev, airPurifier: false }));
+            setTimeout(() => setOverrides(prev => ({ ...prev, airPurifier: null })), 3000);
         }
     };
 
@@ -320,15 +368,15 @@ function ControlToggles() {
             <div className="control-card">
                 <div className="control-label">AIR CONDITION (AC):</div>
                 <div className="control-toggle">
-                    <span className="toggle-label manual">{state.ac_power || 'UNKNOWN'}</span>
+                    <span className={`toggle-label ${isAuto ? 'auto' : 'manual'}`}>{isAuto ? 'AUTO' : 'MANUAL'} • {acDisplay}</span>
                     {isLoading.ac ? (
                         <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
                     ) : (
                         <div
-                            className={`toggle-switch ${acEnabled ? 'active' : ''}`}
-                            onClick={handleACToggle}
-                            style={{ cursor: 'pointer' }}
-                            title="Click to toggle AC"
+                            className={`toggle-switch ${acEnabled ? 'active' : ''} ${isAuto ? 'disabled' : ''}`}
+                            onClick={isAuto ? undefined : handleACToggle}
+                            style={{ cursor: isAuto ? 'not-allowed' : 'pointer', opacity: isAuto ? 0.6 : 1 }}
+                            title={isAuto ? 'Disabled in Automatic mode' : 'Click to toggle AC'}
                         />
                     )}
                 </div>
@@ -336,17 +384,51 @@ function ControlToggles() {
             <div className="control-card">
                 <div className="control-label">AIR PURIFIER:</div>
                 <div className="control-toggle">
-                    <span className="toggle-label manual">{state.air_purifier || 'UNKNOWN'}</span>
+                    <span className={`toggle-label ${isAuto ? 'auto' : 'manual'}`}>{isAuto ? 'AUTO' : 'MANUAL'} • {airPurifierDisplay}</span>
                     {isLoading.airPurifier ? (
                         <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
                     ) : (
                         <div
-                            className={`toggle-switch ${airPurifierEnabled ? 'active' : ''}`}
-                            onClick={handleAirPurifierToggle}
-                            style={{ cursor: 'pointer' }}
-                            title="Click to toggle Air Purifier"
+                            className={`toggle-switch ${airPurifierEnabled ? 'active' : ''} ${isAuto ? 'disabled' : ''}`}
+                            onClick={isAuto ? undefined : handleAirPurifierToggle}
+                            style={{ cursor: isAuto ? 'not-allowed' : 'pointer', opacity: isAuto ? 0.6 : 1 }}
+                            title={isAuto ? 'Disabled in Automatic mode' : 'Click to toggle Air Purifier'}
                         />
                     )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Notice shown in Manual mode suggesting toggles to enable
+function ManualModeNotice() {
+    const { currentDeviceData } = useDevice();
+    const env = currentDeviceData?.environment || {};
+
+    const savedRaw = localStorage.getItem('fabrix_settings');
+    const saved = savedRaw ? JSON.parse(savedRaw) : {};
+    const mode = saved.systemMode || 'MANUAL';
+    const thresholds = saved.thresholds || { temperature: { min: 18, max: 28 }, humidity: { min: 30, max: 60 } };
+
+    if (mode !== 'MANUAL') return null;
+
+    const suggestions = [];
+    const temp = env.ambient_temp ?? env.temperature ?? env.temp;
+    const hum = env.ambient_hum ?? env.humidity ?? env.hum;
+
+    if (temp != null && temp > thresholds.temperature.max) suggestions.push('Air Condition (AC)');
+    if (hum != null && (hum > thresholds.humidity.max || hum < thresholds.humidity.min)) suggestions.push('Air Purifier');
+
+    if (suggestions.length === 0) return null;
+
+    return (
+        <div style={{ background: '#FEF3C7', borderRadius: 12, padding: '10px 12px', marginBottom: 12, border: '1px solid #FDE68A' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <AlertTriangle size={18} style={{ color: '#B45309' }} />
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>Manual Mode Active</div>
+                    <div style={{ fontSize: 13, color: '#92400E' }}>Recommended: Turn ON {suggestions.join(' and ')}</div>
                 </div>
             </div>
         </div>
@@ -436,6 +518,7 @@ function Dashboard() {
 
                 {/* Right Column - Status & Alerts */}
                 <div className="side-column">
+                    <ManualModeNotice />
                     <StatusCard />
                     <AlertsCard />
                     <ControlToggles />

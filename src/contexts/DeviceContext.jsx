@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { connectWebSocket } from '../services/webSocketClient';
-import { getStateDetails } from '../services/api';
+import { getStateDetails, updateStateDetails } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
 const DeviceContext = createContext(null);
@@ -115,6 +115,9 @@ export function DeviceProvider({ children }) {
         }
         return [];
     });
+
+        // Throttle timestamps for automatic control actions per device
+        const autoActionTimestamps = useRef({});
 
 
 
@@ -315,6 +318,75 @@ export function DeviceProvider({ children }) {
                     timestamp: Date.now()
                 });
             }
+        }
+
+        // Auto-control logic: if system mode is AUTOMATIC, trigger AC / Air Purifier updates
+        try {
+            const saved = localStorage.getItem('fabrix_settings');
+            const parsed = saved ? JSON.parse(saved) : {};
+            const mode = parsed.systemMode || 'MANUAL';
+
+            if (mode === 'AUTOMATIC') {
+                // Throttle auto actions per device
+                const now = Date.now();
+                const last = autoActionTimestamps.current[deviceId] || 0;
+                if (now - last > 30000) { // 30s throttle
+                    autoActionTimestamps.current[deviceId] = now;
+
+                    // Decide AC state
+                    const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp;
+                    if (temp != null) {
+                        if (temp > thresholds.temperature.max) {
+                            // Turn AC ON
+                            (async () => {
+                                try {
+                                    await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
+                                    if (refreshDeviceState) await refreshDeviceState();
+                                } catch (err) {
+                                    console.warn('[AutoControl] Failed to set AC ON', err);
+                                }
+                            })();
+                        } else if (temp < thresholds.temperature.min) {
+                            // Turn AC OFF
+                            (async () => {
+                                try {
+                                    await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
+                                    if (refreshDeviceState) await refreshDeviceState();
+                                } catch (err) {
+                                    console.warn('[AutoControl] Failed to set AC OFF', err);
+                                }
+                            })();
+                        }
+                    }
+
+                    // Decide Air Purifier state based on humidity or active alerts
+                    const hum = payload.humidity ?? payload.ambient_hum;
+                    const hasAlert = payload.alert || payload.active_alert;
+                    if (hum != null) {
+                        if (hum > thresholds.humidity.max || hasAlert) {
+                            (async () => {
+                                try {
+                                    await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'ACTIVE' });
+                                    if (refreshDeviceState) await refreshDeviceState();
+                                } catch (err) {
+                                    console.warn('[AutoControl] Failed to set Air Purifier ACTIVE', err);
+                                }
+                            })();
+                        } else if (hum < thresholds.humidity.min) {
+                            (async () => {
+                                try {
+                                    await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'INACTIVE' });
+                                    if (refreshDeviceState) await refreshDeviceState();
+                                } catch (err) {
+                                    console.warn('[AutoControl] Failed to set Air Purifier INACTIVE', err);
+                                }
+                            })();
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[AutoControl] Error evaluating automatic controls', err);
         }
     }, [addAlert]);
 
