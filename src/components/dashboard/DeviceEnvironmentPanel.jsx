@@ -28,6 +28,22 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
         }
     };
 
+    const getValueTextColor = () => {
+        switch (status) {
+            case 'warning': return 'text-amber-600';
+            case 'critical': return 'text-red-600';
+            default: return 'text-green-600';
+        }
+    };
+
+    const getValueColorStyle = () => {
+        switch (status) {
+            case 'warning': return { color: '#D97706' }; // amber-600
+            case 'critical': return { color: '#DC2626' }; // red-600
+            default: return { color: '#16A34A' }; // green-600
+        }
+    };
+
     return (
         <div className={`card p-4 border-l-4 ${getStatusColor()}`}>
             <div className="flex items-start justify-between">
@@ -41,7 +57,10 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
             <div className="mt-3">
                 <p className="text-sm text-gray-500">{label}</p>
                 <div className="flex items-baseline gap-1 mt-1">
-                    <span className="text-2xl font-bold text-gray-900">
+                    <span
+                        className={`text-2xl font-bold ${value == null || value === '--' ? 'text-gray-900' : getValueTextColor()}`}
+                        style={value == null || value === '--' ? {} : getValueColorStyle()}
+                    >
                         {value ?? '--'}
                     </span>
                     {unit && <span className="text-sm text-gray-500">{unit}</span>}
@@ -101,6 +120,13 @@ function DeviceEnvironmentPanel() {
         return 'normal';
     };
 
+    const getPressureStatus = (p) => {
+        if (!p) return 'normal';
+        if (p < 980 || p > 1050) return 'critical';
+        if (p < 990 || p > 1040) return 'warning';
+        return 'normal';
+    };
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -140,6 +166,7 @@ function DeviceEnvironmentPanel() {
                     label="Atmospheric Pressure"
                     value={env.atmospheric_pressure?.toFixed(0)}
                     unit="hPa"
+                    status={getPressureStatus(env.atmospheric_pressure)}
                 />
                 <MetricCard
                     icon={Wind}

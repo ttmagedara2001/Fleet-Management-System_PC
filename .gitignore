@@ -13,7 +13,7 @@ dist-ssr
 *.local
 
 # Environment variables
-.envl
+.env
 .env.local
 .env.example
 

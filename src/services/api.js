@@ -15,6 +15,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -27,6 +28,8 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers["X-Token"] = token;
   }
+  // Ensure cookies are sent for cookie-based auth flows
+  config.withCredentials = true;
   return config;
 });
 
@@ -75,7 +78,7 @@ export async function getDeviceStreamData(
   pagination = "0",
   pageSize = "100",
 ) {
-  const response = await api.post("/get-stream-data/device", {
+  const response = await api.post("/user/get-stream-data/device", {
     deviceId,
     startTime,
     endTime,
@@ -113,7 +116,7 @@ export async function getTopicStreamData(
  * POST /get-state-details/device/topic
  */
 export async function getTopicStateDetails(deviceId, topic) {
-  const response = await api.post("/get-state-details/device/topic", {
+  const response = await api.post("/user/get-state-details/device/topic", {
     deviceId,
     topic,
   });
@@ -125,10 +128,27 @@ export async function getTopicStateDetails(deviceId, topic) {
  * POST /get-state-details/device
  */
 export async function getDeviceStateDetails(deviceId) {
-  const response = await api.post("/get-state-details/device", {
+  const response = await api.post("/user/get-state-details/device", {
     deviceId,
   });
   return response.data;
+}
+
+/**
+ * Sequence helper: fetch state details for a specific topic, then fetch
+ * the overall device state. Returns an object { topicState, deviceState }.
+ */
+export async function fetchTopicThenDeviceState(deviceId, topic) {
+  try {
+    const topicState = await getTopicStateDetails(deviceId, topic);
+    const deviceState = await getDeviceStateDetails(deviceId);
+    return { topicState, deviceState };
+  } catch (err) {
+    // Re-throw with context for callers to handle
+    const e = new Error(`Failed to fetch topic/device state: ${err.message}`);
+    e.original = err;
+    throw e;
+  }
 }
 
 /**
