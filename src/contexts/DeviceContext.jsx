@@ -336,8 +336,12 @@ export function DeviceProvider({ children }) {
                     // Decide AC state
                     const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp;
                     if (temp != null) {
-                        if (temp > thresholds.temperature.max) {
-                            // Turn AC ON
+                        // NOTE: Auto behavior: when temperature is BELOW min, enable AC (turn ON)
+                        // and when temperature is ABOVE max, disable AC (turn OFF).
+                        // This treats AC as the actuator used to heat when low; adjust if your device
+                        // interprets ON/OFF the other way around.
+                        if (temp < thresholds.temperature.min) {
+                            // Turn AC ON (temperature is low)
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
@@ -346,8 +350,8 @@ export function DeviceProvider({ children }) {
                                     console.warn('[AutoControl] Failed to set AC ON', err);
                                 }
                             })();
-                        } else if (temp < thresholds.temperature.min) {
-                            // Turn AC OFF
+                        } else if (temp > thresholds.temperature.max) {
+                            // Turn AC OFF (temperature is high)
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });

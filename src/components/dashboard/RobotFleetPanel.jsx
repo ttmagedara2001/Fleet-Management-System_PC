@@ -61,6 +61,13 @@ function RobotCard({ robot }) {
     const batteryStatus = health.label.toLowerCase();
     const tempStatus = getTempStatus();
 
+    const getBatteryTextStyle = (status) => {
+        if (!status) return { color: '#111827' };
+        if (status === 'critical') return { color: '#DC2626' };
+        if (status === 'warning') return { color: '#D97706' };
+        return { color: '#16A34A' };
+    };
+
     return (
         <div className={`card p-4 border-l-4 ${getStateColor()}`}>
             {/* Header */}
@@ -110,8 +117,8 @@ function RobotCard({ robot }) {
                             />
                         </div>
                         <div className="w-10 text-right">
-                            <div className="text-sm font-semibold text-gray-900">{health.pct}%</div>
-                            <div className="text-xs text-gray-500">{health.label}</div>
+                            <div className="text-sm font-semibold" style={getBatteryTextStyle(batteryStatus)}>{health.pct}%</div>
+                            <div className="text-xs" style={getBatteryTextStyle(batteryStatus)}>{health.label}</div>
                         </div>
                     </div>
                 </div>
@@ -127,7 +134,7 @@ function RobotCard({ robot }) {
                         />
                         <span className="text-xs text-gray-500">Temp</span>
                     </div>
-                    <p className="text-sm font-semibold text-gray-900">
+                    <p className="text-sm font-semibold" style={tempStatus === 'critical' ? { color: '#DC2626' } : tempStatus === 'warning' ? { color: '#D97706' } : { color: '#16A34A' }}>
                         {robot.environment?.temp?.toFixed(1) || '--'}°C
                     </p>
                 </div>

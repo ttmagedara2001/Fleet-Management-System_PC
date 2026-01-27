@@ -65,6 +65,20 @@ function FabMap() {
         return '#9CA3AF'; // Gray for Ready/Idle
     };
 
+    const getBatteryColorStyle = (battery) => {
+        if (battery == null) return { color: '#111827' };
+        if (battery < 15) return { color: '#DC2626' }; // red-600
+        if (battery < 40) return { color: '#F59E0B' }; // amber
+        return { color: '#16A34A' }; // green-600
+    };
+
+    const getProgressColorStyle = (progress) => {
+        if (progress == null) return { color: '#111827' };
+        if (progress < 20) return { color: '#DC2626' };
+        if (progress < 50) return { color: '#F59E0B' };
+        return { color: '#16A34A' };
+    };
+
     return (
         <div className="fab-map-container">
             <div className="fab-map">
@@ -146,7 +160,7 @@ function FabMap() {
                                 </div>
                                 <div className="robot-hover-row">
                                     <span className="label">Bat:</span>
-                                    <span className="value">{robot.status?.battery != null ? `${robot.status.battery}%` : '--'}</span>
+                                    <span className="value" style={getBatteryColorStyle(robot.status?.battery)}>{robot.status?.battery != null ? `${robot.status.battery}%` : '--'}</span>
                                 </div>
                             </div>
                         </div>
@@ -178,16 +192,16 @@ function FabMap() {
                         </div>
                         <div className="robot-tooltip-row">
                             <span className="label">BATTERY:</span>
-                            <span className="value">{selectedRobot.status?.battery != null ? `${selectedRobot.status.battery}%` : '--'}</span>
+                            <span className="value" style={getBatteryColorStyle(selectedRobot.status?.battery)}>{selectedRobot.status?.battery != null ? `${selectedRobot.status.battery}%` : '--'}</span>
                         </div>
                         <div className="robot-tooltip-row">
                             <span className="label">CURRENT TASK:</span>
                             <span className="value">{selectedRobot.task?.type || 'None'}</span>
                         </div>
-                        {selectedRobot.task?.progress != null && (
+                                {selectedRobot.task?.progress != null && (
                             <div className="robot-tooltip-row">
                                 <span className="label">PROGRESS:</span>
-                                <span className="value">{selectedRobot.task.progress}%</span>
+                                <span className="value" style={getProgressColorStyle(selectedRobot.task.progress)}>{selectedRobot.task.progress}%</span>
                             </div>
                         )}
                     </div>
@@ -221,6 +235,24 @@ function StatusCard() {
 
     const getTemperatureStatus = (temp) => {
         if (temp == null) return 'normal';
+        // Try to read user settings from localStorage
+        try {
+            const raw = localStorage.getItem('fabrix_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                const t = s.temperature || {};
+                const min = typeof t.min === 'number' ? t.min : 20;
+                const max = typeof t.max === 'number' ? t.max : 40;
+                // Critical when outside configured range
+                if (temp > max || temp < min) return 'critical';
+                // Warning when within 3 degrees of either bound
+                if (temp > (max - 3) || temp < (min + 3)) return 'warning';
+                return 'normal';
+            }
+        } catch (e) {
+            console.warn('[Dashboard] ❗ Failed to parse settings for temperature status', e);
+        }
+        // Fallback to original thresholds
         if (temp > 28) return 'critical';
         if (temp > 25) return 'warning';
         return 'normal';
@@ -228,6 +260,20 @@ function StatusCard() {
 
     const getHumidityStatus = (hum) => {
         if (hum == null) return 'normal';
+        try {
+            const raw = localStorage.getItem('fabrix_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                const h = s.humidity || {};
+                const min = typeof h.min === 'number' ? h.min : 30;
+                const max = typeof h.max === 'number' ? h.max : 60;
+                if (hum > max || hum < min) return 'critical';
+                if (hum > (max - 5) || hum < (min + 5)) return 'warning';
+                return 'normal';
+            }
+        } catch (e) {
+            console.warn('[Dashboard] ❗ Failed to parse settings for humidity status', e);
+        }
         if (hum > 60 || hum < 30) return 'critical';
         if (hum > 55 || hum < 35) return 'warning';
         return 'normal';
@@ -235,6 +281,23 @@ function StatusCard() {
 
     const getPressureStatus = (p) => {
         if (p == null) return 'normal';
+        try {
+            const raw = localStorage.getItem('fabrix_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                const pr = s.pressure || {};
+                // If user provided reasonable hPa values, use them; otherwise fallback to hardcoded logic
+                if (typeof pr.min === 'number' && typeof pr.max === 'number') {
+                    const min = pr.min;
+                    const max = pr.max;
+                    if (p > max || p < min) return 'critical';
+                    if (p > (max - 10) || p < (min + 10)) return 'warning';
+                    return 'normal';
+                }
+            }
+        } catch (e) {
+            console.warn('[Dashboard] ❗ Failed to parse settings for pressure status', e);
+        }
         if (p < 980 || p > 1050) return 'critical';
         if (p < 990 || p > 1040) return 'warning';
         return 'normal';
@@ -261,7 +324,7 @@ function StatusCard() {
                 {(() => {
                     const v = getMetricValue('temperature');
                     const status = getTemperatureStatus(v);
-                    return <span className="value" style={getValueColorStyle(status)}>{v != null ? `${Number(v).toFixed(0)} C` : '-- C'}</span>;
+                    return <span className="value" style={getValueColorStyle(status)}>{v != null ? `${Number(v).toFixed(0)}°C` : '--°C'}</span>;
                 })()}
             </div>
             <div className="status-row">
@@ -469,6 +532,13 @@ function RobotDetails() {
         return 'normal';
     };
 
+    const getBatteryColorStyle = (battery) => {
+        if (battery == null) return { color: '#111827' };
+        if (battery < 15) return { color: '#DC2626' };
+        if (battery < 40) return { color: '#F59E0B' };
+        return { color: '#16A34A' };
+    };
+
     if (robots.length === 0) {
         return (
             <div className="robot-details-section">
@@ -505,13 +575,13 @@ function RobotDetails() {
                             TASK: {robot.task?.task || robot.task?.type || '--'}
                         </div>
                         <div className="robot-card-stats">
-                            <div className={`robot-stat ${robot.status?.battery && robot.status.battery < 30 ? 'text-red-500' : 'battery'}`}>
+                            <div className={`robot-stat`}>
                                 <Battery size={14} />
-                                {robot.status?.battery ? `${robot.status.battery}%` : '--'}
+                                <span style={getBatteryColorStyle(robot.status?.battery)}>{robot.status?.battery ? `${robot.status.battery}%` : '--'}</span>
                             </div>
                             <div className={`robot-stat temp ${getTempClass(robot.environment?.temp)}`}>
                                 <Thermometer size={14} />
-                                {robot.environment?.temp ? `${robot.environment.temp} C` : '--'}
+                                {robot.environment?.temp ? `${robot.environment.temp}°C` : '--°C'}
                             </div>
                         </div>
                     </div>

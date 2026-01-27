@@ -337,9 +337,10 @@ function Settings() {
                                         <div key={f.k}>
                                             <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>{f.l}</label>
                                             <input
-                                                type="text"
-                                                value={settings[card.key]?.[f.k] || ''}
-                                                onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value)}
+                                                type="number"
+                                                step="0.1"
+                                                value={settings[card.key]?.[f.k] ?? ''}
+                                                onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value === '' ? '' : Number(e.target.value))}
                                                 style={{
                                                     width: '100%',
                                                     padding: '10px 12px',
