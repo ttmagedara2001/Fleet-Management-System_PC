@@ -10,15 +10,13 @@ import {
     Zap
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
+import { computeRobotHealth, computeTaskCompletion } from '../../utils/telemetryMath';
 
 function RobotCard({ robot }) {
-    const getBatteryStatus = () => {
-        const battery = robot.status?.battery;
-        if (!battery) return 'unknown';
-        if (battery > 60) return 'normal';
-        if (battery > 30) return 'warning';
-        return 'critical';
-    };
+    // compute robot health from battery percentage
+    const batteryValue = robot.status?.battery ?? robot.status?.battery_pct ?? robot.battery_pct ?? robot.battery;
+    const health = computeRobotHealth(batteryValue);
+
 
     const getTempStatus = () => {
         const temp = robot.environment?.temp;
@@ -60,7 +58,7 @@ function RobotCard({ robot }) {
         }
     };
 
-    const batteryStatus = getBatteryStatus();
+    const batteryStatus = health.label.toLowerCase();
     const tempStatus = getTempStatus();
 
     return (
@@ -108,12 +106,13 @@ function RobotCard({ robot }) {
                         <div className="flex-1 progress-bar">
                             <div
                                 className={`progress-bar-fill ${batteryStatus}`}
-                                style={{ width: `${robot.status?.battery || 0}%` }}
+                                style={{ width: `${health.pct}%` }}
                             />
                         </div>
-                        <span className="text-sm font-semibold text-gray-900 w-10 text-right">
-                            {robot.status?.battery || '--'}%
-                        </span>
+                        <div className="w-10 text-right">
+                            <div className="text-sm font-semibold text-gray-900">{health.pct}%</div>
+                            <div className="text-xs text-gray-500">{health.label}</div>
+                        </div>
                     </div>
                 </div>
 
@@ -166,7 +165,7 @@ function RobotCard({ robot }) {
                     <div className="progress-bar">
                         <div
                             className="progress-bar-fill normal"
-                            style={{ width: `${robot.task.progress || 50}%` }}
+                            style={{ width: `${computeTaskCompletion(robot.task)}%` }}
                         />
                     </div>
                     {robot.task.source && robot.task.destination && (

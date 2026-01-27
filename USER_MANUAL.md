@@ -87,6 +87,8 @@ Use the **Sidebar** to switch between pages:
 | 📈   | Analysis  | Historical data & charts   |
 | ⚙️   | Settings  | Configuration & thresholds |
 
+> Tip: Use the eye icon in the Sidebar header to hide or show sidebar textual content (icons-only mode). The selection persists across sessions.
+
 ---
 
 ## 3. Dashboard Overview
@@ -209,6 +211,8 @@ The interactive Facility Map provides a visual representation of your workspace 
 ### 5.3 Interacting with Robots
 
 **Click on any robot marker** to view detailed information:
+
+> Tip: Hover over a robot marker to quickly see a compact tooltip containing its GPS location and battery level.
 
 ```
 ┌─────────────────────────────┐
@@ -373,6 +377,8 @@ The CSV includes:
 - Humidity
 - Battery level
 
+Note: Timestamps are recorded/normalized by the backend when messages or measurements arrive; users or devices do not need to supply `timestamp` fields in outgoing payloads.
+
 ### 8.7 Refreshing Data
 
 Click the **Refresh** button (🔄) to fetch the latest data from the API.
@@ -446,13 +452,11 @@ Click **Save Device Settings** or **Save Robot Settings** to persist changes.
 ### 10.1 Daily Operations
 
 1. **Start of Shift**
-
    - Check Dashboard for any overnight alerts
    - Verify all robots are accounted for
    - Review battery levels and charging status
 
 2. **During Operations**
-
    - Monitor the Facility Map for robot positions
    - Keep alerts panel visible
    - Respond to low battery warnings promptly

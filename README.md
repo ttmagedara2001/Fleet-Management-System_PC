@@ -266,12 +266,14 @@ Fleet-Management-System_PC/
 
 ## 📚 Documentation
 
-| Document                                 | Description                          |
-| ---------------------------------------- | ------------------------------------ |
-| [README.md](README.md)                   | Project overview and setup guide     |
-| [USER_MANUAL.md](USER_MANUAL.md)         | Complete user guide with screenshots |
-| [API_REFERENCE.md](API_REFERENCE.md)     | REST API and WebSocket documentation |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions          |
+| Document                                           | Description                              |
+| -------------------------------------------------- | ---------------------------------------- |
+| [README.md](README.md)                             | Project overview and setup guide         |
+| [USER_MANUAL.md](USER_MANUAL.md)                   | Complete user guide with screenshots     |
+| [API_REFERENCE.md](API_REFERENCE.md)               | REST API and WebSocket documentation     |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md)           | Common issues and solutions              |
+| [FIRMWARE_DEVELOPMENT.md](FIRMWARE_DEVELOPMENT.md) | Firmware development guide and protocols |
+| [FIRMWARE_DEVELOPMENT.md](FIRMWARE_DEVELOPMENT.md) | Firmware development guide and protocols |
 
 ---
 

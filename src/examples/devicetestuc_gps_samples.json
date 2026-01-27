@@ -1,0 +1,47 @@
+[
+  {
+    "robotId": "devicetestuc-R-101",
+    "lat": 37.422400,
+    "lng": -122.084000,
+    "heading": 45,
+    "speed_m_s": 0.5,
+    "battery_pct": 92,
+    "status": "ACTIVE"
+  },
+  {
+    "robotId": "devicetestuc-R-102",
+    "lat": 37.422100,
+    "lng": -122.083700,
+    "heading": 135,
+    "speed_m_s": 0.0,
+    "battery_pct": 58,
+    "status": "IDLE"
+  },
+  {
+    "robotId": "devicetestuc-R-103",
+    "lat": 37.421800,
+    "lng": -122.084200,
+    "heading": 270,
+    "speed_m_s": 1.1,
+    "battery_pct": 71,
+    "status": "MOVING"
+  },
+  {
+    "robotId": "devicetestuc-R-104",
+    "lat": 37.422750,
+    "lng": -122.083950,
+    "heading": 300,
+    "speed_m_s": 0.2,
+    "battery_pct": 34,
+    "status": "LOW_BATTERY"
+  },
+  {
+    "robotId": "devicetestuc-R-105",
+    "lat": 37.422300,
+    "lng": -122.084400,
+    "heading": 10,
+    "speed_m_s": 0.0,
+    "battery_pct": 16,
+    "status": "CHARGING"
+  }
+]

@@ -265,11 +265,12 @@ Retrieves the current state for ONE specific topic.
 **Available State Topics for Fleet Management:**
 
 | Topic                            | Description               | Possible Values                     |
-| -------------------------------- | ------------------------- | ----------------------------------- |
+| -------------------------------- | ------------------------- | ----------------------------------- | -------- |
 | `fleetMS/ac`                     | AC power control          | `ON`, `OFF`                         |
 | `fleetMS/airPurifier`            | Air purifier control      | `ACTIVE`, `INACTIVE`, `MAINTENANCE` |
 | `fleetMS/status`                 | Device operational status | `NOMINAL`, `DEGRADED`, `CRITICAL`   |
 | `fleetMS/robots/{robotId}/tasks` | Robot task control        | Task assignment JSON                |
+| `fleetMS/emergencyStop`          | Emergency stop/clear flag | `{ "emergency_stop": true           | false }` |
 
 ---
 
@@ -354,6 +355,40 @@ This is the main endpoint for sending control commands to IoT devices.
   }
 }
 ```
+
+6. **Emergency Stop / Clear:**
+
+```json
+{
+  "deviceId": "device9988",
+  "topic": "fleetMS/emergencyStop",
+  "payload": { "emergency_stop": true }
+}
+```
+
+To clear the emergency state (restart), send the same topic with `emergency_stop: false`.
+
+---
+
+### Robot Location / GPS Payload (MQTT)
+
+Robot location messages should use the `fleetMS/robots/{robotId}/location` topic and include GPS coordinates in the payload. Example payloads for testing are provided in `src/examples/gps_payload_examples.json`.
+
+Example:
+
+```json
+{
+  "robotId": "R-001",
+  "lat": 37.422033,
+  "lng": -122.084095,
+  "heading": 90,
+  "speed_m_s": 0.6,
+  "battery_pct": 84,
+  "status": "ACTIVE"
+}
+```
+
+> Note: The backend automatically adds or normalizes a `timestamp` when messages are received. Clients/firmware may omit the `timestamp` field in outgoing payloads.
 
 **Backend Flow:**
 
@@ -580,7 +615,7 @@ const getTimeRange = (range) => {
   };
 
   const startDate = new Date(
-    now.getTime() - (rangeMs[range] || rangeMs["24h"])
+    now.getTime() - (rangeMs[range] || rangeMs["24h"]),
   );
 
   return {
@@ -600,7 +635,7 @@ export async function getStreamData(
   startTime,
   endTime,
   pagination = 0,
-  pageSize = 100
+  pageSize = 100,
 ) {
   const response = await api.post("/get-stream-data/device/topic", {
     deviceId,
@@ -663,7 +698,7 @@ useEffect(() => {
   });
 
   const subscriptions = deviceTopics.map(({ topic, handler }) =>
-    subscribe(topic, handler)
+    subscribe(topic, handler),
   );
 
   // Cleanup on device change

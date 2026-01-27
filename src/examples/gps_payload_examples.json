@@ -7,7 +7,7 @@
     "speed_m_s": 0.6,
     "battery_pct": 84,
     "status": "ACTIVE",
-    "timestamp": "2026-01-26T10:00:00Z"
+    
   },
   {
     "robotId": "R-002",
@@ -17,7 +17,7 @@
     "speed_m_s": 0.0,
     "battery_pct": 46,
     "status": "CHARGING",
-    "timestamp": "2026-01-26T10:00:05Z"
+    
   },
   {
     "robotId": "R-003",
@@ -27,7 +27,7 @@
     "speed_m_s": 1.2,
     "battery_pct": 62,
     "status": "ACTIVE",
-    "timestamp": "2026-01-26T10:00:10Z"
+    
   },
   {
     "robotId": "R-004",
@@ -37,6 +37,6 @@
     "speed_m_s": 0.3,
     "battery_pct": 12,
     "status": "LOW_BATTERY",
-    "timestamp": "2026-01-26T10:00:12Z"
+    
   }
 ]
