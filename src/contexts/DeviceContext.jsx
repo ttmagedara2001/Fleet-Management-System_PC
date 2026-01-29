@@ -116,6 +116,19 @@ export function DeviceProvider({ children }) {
         return [];
     });
 
+    // Time-series histories for Analysis graphs/tables (kept small)
+    const [envHistory, setEnvHistory] = useState(() => {
+        const h = {};
+        DEVICES.forEach(d => { h[d.id] = []; });
+        return h;
+    });
+
+    const [robotHistory, setRobotHistory] = useState(() => {
+        const rh = {};
+        DEVICES.forEach(d => { rh[d.id] = {}; });
+        return rh;
+    });
+
         // Throttle timestamps for automatic control actions per device
         const autoActionTimestamps = useRef({});
 
@@ -233,6 +246,67 @@ export function DeviceProvider({ children }) {
         });
     }, []);
 
+    // Severity computation for environment values (used by UI to color values)
+    const computeEnvSeverity = useCallback((payload) => {
+        const thresholds = getThresholds();
+        const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp;
+        const hum = payload.humidity ?? payload.ambient_hum;
+        const pressure = payload.pressure ?? payload.atmospheric_pressure;
+
+        const result = { temperature: 'good', humidity: 'good', pressure: 'good' };
+
+        if (temp != null) {
+            if (temp > thresholds.temperature.critical) result.temperature = 'critical';
+            else if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) result.temperature = 'warning';
+        }
+        if (hum != null) {
+            if (hum > thresholds.humidity.critical) result.humidity = 'critical';
+            else if (hum > thresholds.humidity.max || hum < thresholds.humidity.min) result.humidity = 'warning';
+        }
+        if (pressure != null) {
+            if (pressure > thresholds.pressure.max || pressure < thresholds.pressure.min) result.pressure = 'warning';
+        }
+        return result;
+    }, []);
+
+    // Add environment datapoint to envHistory (bounded length)
+    const addEnvHistory = useCallback((deviceId, payload) => {
+        setEnvHistory(prev => {
+            const deviceSeries = prev[deviceId] ? [...prev[deviceId]] : [];
+            deviceSeries.unshift({ ts: Date.now(), temperature: payload.temperature ?? payload.temp ?? payload.ambient_temp ?? null, humidity: payload.humidity ?? payload.ambient_hum ?? null, pressure: payload.pressure ?? payload.atmospheric_pressure ?? null });
+            if (deviceSeries.length > 500) deviceSeries.length = 500;
+            return { ...prev, [deviceId]: deviceSeries };
+        });
+    }, []);
+
+    // Add robot metric datapoint to robotHistory (bounded length)
+    const addRobotHistory = useCallback((deviceId, robotId, metric, value) => {
+        setRobotHistory(prev => {
+            const deviceObj = { ...(prev[deviceId] || {}) };
+            const series = deviceObj[robotId] ? [...deviceObj[robotId]] : [];
+            series.unshift({ ts: Date.now(), metric, value });
+            if (series.length > 500) series.length = 500;
+            deviceObj[robotId] = series;
+            return { ...prev, [deviceId]: deviceObj };
+        });
+    }, []);
+
+    // Compute robot severity (battery/temp) to help UI colorization
+    const computeRobotSeverity = useCallback((robot) => {
+        const thresholds = getThresholds();
+        const sev = { battery: 'good', temp: 'good' };
+        const batt = robot?.status?.battery;
+        const temp = robot?.environment?.temp;
+        if (batt != null) {
+            if (batt <= thresholds.battery.critical) sev.battery = 'critical';
+            else if (batt <= thresholds.battery.low) sev.battery = 'warning';
+        }
+        if (temp != null) {
+            if (temp > 40) sev.temp = 'warning';
+        }
+        return sev;
+    }, []);
+
     // Handle device temperature updates
     const handleTemperatureUpdate = useCallback((deviceId, payload) => {
         console.log('[Device] 🌡️ Temperature update for', deviceId, ':', payload);
@@ -250,6 +324,24 @@ export function DeviceProvider({ children }) {
                 lastUpdate: Date.now()
             }
         }));
+
+        // Append to environment history for analysis
+        try { addEnvHistory(deviceId, payload); } catch (e) { /* ignore */ }
+
+        // Store computed severity flags in device state for UI coloring
+        try {
+            const severity = computeEnvSeverity(payload);
+            setDeviceData(prev => ({
+                ...prev,
+                [deviceId]: {
+                    ...prev[deviceId],
+                    environment: {
+                        ...prev[deviceId]?.environment,
+                        severity
+                    }
+                }
+            }));
+        } catch (e) { /* ignore */ }
 
         // Get thresholds from localStorage
         const thresholds = getThresholds();
@@ -393,7 +485,7 @@ export function DeviceProvider({ children }) {
         } catch (err) {
             console.warn('[AutoControl] Error evaluating automatic controls', err);
         }
-    }, [addAlert]);
+    }, [addAlert, addEnvHistory, computeEnvSeverity]);
 
     // Handle AC state updates
     const handleACUpdate = useCallback((deviceId, payload) => {
@@ -440,7 +532,7 @@ export function DeviceProvider({ children }) {
                 timestamp: Date.now()
             });
         }
-    }, [addAlert]);
+    }, [addAlert, computeRobotSeverity, addRobotHistory]);
 
     // Handle air purifier state updates
     const handleAirPurifierUpdate = useCallback((deviceId, payload) => {
@@ -547,6 +639,9 @@ export function DeviceProvider({ children }) {
                 }
             };
         });
+
+        // Append location to robot history (keep simple lat,lng object)
+        try { addRobotHistory(deviceId, robotId, 'location', { lat: payload.lat ?? payload.latitude ?? payload.location?.lat, lng: payload.lng ?? payload.longitude ?? payload.location?.lng }); } catch (e) { /* ignore */ }
     }, []);
 
     // Handle robot temperature updates
@@ -557,22 +652,43 @@ export function DeviceProvider({ children }) {
         // Unwrap payload if nested (though routeStreamData does this, sometimes structure varies)
         const data = payload.payload || payload;
         const temp = data.temperature ?? data.temp;
+        setRobots(prev => {
+            const deviceRobots = prev[deviceId] || {};
+            const existingRobot = deviceRobots[robotId] || {
+                id: robotId,
+                location: { lat: null, lng: null, z: 0 },
+                heading: 0,
+                status: { state: 'READY', battery: 100 },
+                environment: { temp: null, humidity: null },
+                task: null
+            };
 
-        setRobots(prev => ({
-            ...prev,
-            [deviceId]: {
-                ...prev[deviceId],
-                [robotId]: {
-                    ...prev[deviceId]?.[robotId],
-                    environment: {
-                        ...prev[deviceId]?.[robotId]?.environment,
-                        temp: temp ?? prev[deviceId]?.[robotId]?.environment?.temp,
-                        humidity: data.humidity ?? prev[deviceId]?.[robotId]?.environment?.humidity
-                    },
-                    lastUpdate: Date.now()
+            const updatedRobot = {
+                ...existingRobot,
+                environment: {
+                    ...existingRobot.environment,
+                    temp: temp ?? existingRobot.environment?.temp,
+                    humidity: data.humidity ?? existingRobot.environment?.humidity
+                },
+                lastUpdate: Date.now()
+            };
+
+            // attach computed severity for UI coloring
+            const sev = computeRobotSeverity(updatedRobot);
+            updatedRobot.severity = sev;
+
+            // return new state
+            return {
+                ...prev,
+                [deviceId]: {
+                    ...deviceRobots,
+                    [robotId]: updatedRobot
                 }
-            }
-        }));
+            };
+        });
+
+        // Append to robot history for analysis
+        try { addRobotHistory(deviceId, robotId, 'temp', temp); } catch (e) { /* ignore */ }
 
         // Check for robot temperature threshold
         if (temp != null && temp > 40) {
@@ -584,7 +700,7 @@ export function DeviceProvider({ children }) {
                 timestamp: Date.now()
             });
         }
-    }, [addAlert]);
+    }, [addAlert, computeRobotSeverity, addRobotHistory]);
 
 
 
@@ -638,7 +754,30 @@ export function DeviceProvider({ children }) {
                 timestamp: Date.now()
             });
         }
-    }, [addAlert]);
+
+        // compute severity and append status to robot history
+        try {
+            setRobots(prev => {
+                const deviceRobots = prev[deviceId] || {};
+                const r = deviceRobots[robotId] || {};
+                const updated = {
+                    ...r,
+                    status: {
+                        ...r.status,
+                        load: payload.load ?? r.status?.load,
+                        state: payload.state ?? payload.status ?? r.status?.state
+                    },
+                    lastUpdate: Date.now()
+                };
+                updated.severity = computeRobotSeverity(updated);
+
+                // also push a small status history entry
+                try { addRobotHistory(deviceId, robotId, 'status', updated.status.state); } catch (e) { /* ignore */ }
+
+                return { ...prev, [deviceId]: { ...deviceRobots, [robotId]: updated } };
+            });
+        } catch (e) { /* ignore */ }
+    }, [addAlert, computeRobotSeverity, addRobotHistory]);
 
     // Handle robot battery updates
     const handleRobotBatteryUpdate = useCallback((deviceId, robotId, payload) => {
@@ -666,20 +805,40 @@ export function DeviceProvider({ children }) {
 
         const battery = payload.battery ?? payload.level ?? payload.percentage;
 
-        setRobots(prev => ({
-            ...prev,
-            [deviceId]: {
-                ...prev[deviceId],
-                [robotId]: {
-                    ...prev[deviceId]?.[robotId],
-                    status: {
-                        ...prev[deviceId]?.[robotId]?.status,
-                        battery: battery ?? prev[deviceId]?.[robotId]?.status?.battery
-                    },
-                    lastUpdate: Date.now()
+        setRobots(prev => {
+            const deviceRobots = prev[deviceId] || {};
+            const existingRobot = deviceRobots[robotId] || {
+                id: robotId,
+                location: { lat: 0, lng: 0, z: 0 },
+                heading: 0,
+                environment: { temp: null, humidity: null },
+                status: { battery: null, load: null, state: 'UNKNOWN' },
+                task: null
+            };
+
+            const updatedRobot = {
+                ...existingRobot,
+                status: {
+                    ...existingRobot.status,
+                    battery: battery ?? existingRobot.status?.battery
+                },
+                lastUpdate: Date.now()
+            };
+
+            // attach computed severity
+            updatedRobot.severity = computeRobotSeverity(updatedRobot);
+
+            return {
+                ...prev,
+                [deviceId]: {
+                    ...deviceRobots,
+                    [robotId]: updatedRobot
                 }
-            }
-        }));
+            };
+        });
+
+        // Append to robot history for analysis
+        try { addRobotHistory(deviceId, robotId, 'battery', battery); } catch (e) { /* ignore */ }
 
         // Get thresholds from localStorage
         const thresholds = getThresholds();
@@ -821,7 +980,10 @@ export function DeviceProvider({ children }) {
             // 1. Device Environment Updates (Strict Topic Check)
             if (topicPath === 'fleetMS/temperature' ||
                 topicPath === 'fleetMS/humidity' ||
-                topicPath === 'fleetMS/pressure') {
+                topicPath === 'fleetMS/pressure' ||
+                topicPath === 'fleetMS/environment' ||
+                topicPath === 'fleetMS/env') {
+                // Accept full environment payloads (temperature, humidity, pressure)
                 handleTemperatureUpdate(deviceId, effectivePayload);
                 return;
             }
@@ -869,7 +1031,11 @@ export function DeviceProvider({ children }) {
                 }
 
                 // Case B: No metric in topic, infer from payload keys
-                // Check all likely keys
+                // Process status first so UI shows connectivity/state immediately,
+                // then store sensor values into history and UI.
+                if (effectivePayload.status !== undefined || effectivePayload.state !== undefined) {
+                    dispatchRobotUpdate('status', effectivePayload);
+                }
                 if (effectivePayload.temperature !== undefined || effectivePayload.temp !== undefined) {
                     dispatchRobotUpdate('temperature', effectivePayload);
                 }
@@ -878,9 +1044,6 @@ export function DeviceProvider({ children }) {
                 }
                 if (effectivePayload.lat !== undefined || effectivePayload.lng !== undefined || effectivePayload.location !== undefined) {
                     dispatchRobotUpdate('location', effectivePayload);
-                }
-                if (effectivePayload.status !== undefined || effectivePayload.state !== undefined) {
-                    dispatchRobotUpdate('status', effectivePayload);
                 }
                 if (effectivePayload.task !== undefined) {
                     dispatchRobotUpdate('task', effectivePayload);
@@ -997,6 +1160,10 @@ export function DeviceProvider({ children }) {
         handleRobotTaskUpdate(selectedDeviceId, robotId, taskPayload);
     }, [selectedDeviceId, handleRobotTaskUpdate]);
 
+    // History getters for Analysis page
+    const getEnvHistory = useCallback((deviceId) => envHistory[deviceId] || [], [envHistory]);
+    const getRobotHistory = useCallback((deviceId, robotId) => (robotHistory[deviceId] && robotHistory[deviceId][robotId]) || [], [robotHistory]);
+
     const value = {
         // WebSocket connection state
         isConnected,
@@ -1011,6 +1178,12 @@ export function DeviceProvider({ children }) {
         currentRobots,
         deviceData,
         robots,
+
+        // Time-series histories (for Analysis graphs/tables)
+        envHistory,
+        robotHistory,
+        getEnvHistory,
+        getRobotHistory,
 
         // Alerts
         alerts,

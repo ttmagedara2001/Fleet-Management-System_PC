@@ -275,29 +275,26 @@ function Analysis() {
         try {
             const { startTime, endTime } = getTimeRange(timeRange);
 
-            const [batRes, tempRes] = await Promise.all([
-                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/battery`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
-                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/temperature`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] }))
-            ]);
+            // Use combined robot topic for historical trends
+            const res = await getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] }));
 
             const dataByTimestamp = {};
 
-            const process = (records, type) => {
-                if (!Array.isArray(records)) return;
-                records.forEach(record => {
+            if (res.status === 'Success' && Array.isArray(res.data)) {
+                res.data.forEach(record => {
                     try {
                         const payload = JSON.parse(record.payload || '{}');
-                        const value = payload.value ?? payload.battery ?? payload.temperature ?? payload.temp ?? payload;
                         const timestamp = record.timestamp;
-                        if (!dataByTimestamp[timestamp]) dataByTimestamp[timestamp] = { timestamp, battery: null, temp: null };
-                        if (type === 'battery') dataByTimestamp[timestamp].battery = Number(value);
-                        if (type === 'temp') dataByTimestamp[timestamp].temp = Number(value);
-                    } catch (e) { }
-                });
-            };
+                        // Payload may contain battery, temperature, or both
+                        const batt = payload.battery ?? payload.level ?? payload.batteryLevel ?? null;
+                        const temp = payload.temperature ?? payload.temp ?? null;
 
-            if (batRes.status === 'Success') process(batRes.data, 'battery');
-            if (tempRes.status === 'Success') process(tempRes.data, 'temp');
+                        if (!dataByTimestamp[timestamp]) dataByTimestamp[timestamp] = { timestamp, battery: null, temp: null };
+                        if (batt !== null) dataByTimestamp[timestamp].battery = Number(batt);
+                        if (temp !== null) dataByTimestamp[timestamp].temp = Number(temp);
+                    } catch (e) { /* ignore parse errors */ }
+                });
+            }
 
             const transformed = Object.values(dataByTimestamp)
                 .map(r => ({
@@ -327,45 +324,27 @@ function Analysis() {
         const { startTime, endTime } = getTimeRange(timeRange);
 
         try {
-            // Fetch specific topics in parallel
-            const [tempRes, humRes, pressRes] = await Promise.all([
-                getTopicStreamData(selectedDeviceId, 'fleetMS/temperature', startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
-                getTopicStreamData(selectedDeviceId, 'fleetMS/humidity', startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
-                getTopicStreamData(selectedDeviceId, 'fleetMS/pressure', startTime, endTime).catch(() => ({ status: 'Failed', data: [] }))
-            ]);
+            // Fetch environment topic which contains temperature/humidity/pressure
+            const envRes = await getTopicStreamData(selectedDeviceId, 'fleetMS/environment', startTime, endTime).catch(() => ({ status: 'Failed', data: [] }));
 
             const dataByTimestamp = {};
 
-            const processRecords = (records, type) => {
-                if (!Array.isArray(records)) return;
-
-                records.forEach(record => {
+            if (envRes.status === 'Success' && Array.isArray(envRes.data)) {
+                envRes.data.forEach(record => {
                     try {
                         const payload = JSON.parse(record.payload || '{}');
-                        const value = payload.value ?? payload.temperature ?? payload.humidity ?? payload.pressure ?? payload;
                         const timestamp = record.timestamp;
+                        const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp ?? null;
+                        const humidity = payload.humidity ?? payload.ambient_hum ?? null;
+                        const pressure = payload.pressure ?? payload.atmospheric_pressure ?? null;
 
-                        if (!dataByTimestamp[timestamp]) {
-                            dataByTimestamp[timestamp] = {
-                                timestamp: timestamp,
-                                temp: null,
-                                humidity: null,
-                                pressure: null
-                            };
-                        }
-
-                        if (type === 'temp') dataByTimestamp[timestamp].temp = value;
-                        if (type === 'humidity') dataByTimestamp[timestamp].humidity = value;
-                        if (type === 'pressure') dataByTimestamp[timestamp].pressure = value;
-                    } catch (e) {
-                        // ignore
-                    }
+                        if (!dataByTimestamp[timestamp]) dataByTimestamp[timestamp] = { timestamp, temp: null, humidity: null, pressure: null };
+                        if (temp !== null) dataByTimestamp[timestamp].temp = Number(temp);
+                        if (humidity !== null) dataByTimestamp[timestamp].humidity = Number(humidity);
+                        if (pressure !== null) dataByTimestamp[timestamp].pressure = Number(pressure);
+                    } catch (e) { /* ignore parse */ }
                 });
-            };
-
-            if (tempRes.status === 'Success') processRecords(tempRes.data, 'temp');
-            if (humRes.status === 'Success') processRecords(humRes.data, 'humidity');
-            if (pressRes.status === 'Success') processRecords(pressRes.data, 'pressure');
+            }
 
             const transformed = Object.values(dataByTimestamp)
                 .map(record => ({
