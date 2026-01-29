@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Bot,
     Thermometer,
@@ -593,12 +593,22 @@ function RobotDetails() {
 
 // Main Dashboard Component
 function Dashboard() {
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        function update() {
+            setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
+        }
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
     return (
         <div className="dashboard-content">
             <div className="dashboard-grid">
                 {/* Left Column - Map */}
                 <div className="map-column">
-                    <FabMap />
+                    {!isMobile && <FabMap />}
                 </div>
 
                 {/* Right Column - Status & Alerts */}

@@ -17,10 +17,10 @@ const AISLES = [
     { id: 'aisle-3', points: '50,250 750,250', name: 'Aisle 3', isHorizontal: true },
 ];
 
-function RobotMarker({ robot, isSelected, onClick }) {
+function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
     const getBatteryColor = () => {
         const battery = robot.status?.battery;
-        if (!battery) return 'gray';
+        if (!battery && battery !== 0) return 'gray';
         if (battery > 60) return 'green';
         if (battery > 30) return 'amber';
         return 'red';
@@ -49,7 +49,7 @@ function RobotMarker({ robot, isSelected, onClick }) {
             {/* Selection ring */}
             {isSelected && (
                 <circle
-                    r="28"
+                    r={markerSize + 10}
                     fill="none"
                     stroke="#9333ea"
                     strokeWidth="3"
@@ -60,10 +60,10 @@ function RobotMarker({ robot, isSelected, onClick }) {
 
             {/* Robot body */}
             <circle
-                r="18"
+                r={markerSize}
                 className="fill-purple-600"
                 stroke="white"
-                strokeWidth="3"
+                strokeWidth={markerSize > 14 ? 3 : 2}
                 filter="drop-shadow(0 2px 4px rgba(0,0,0,0.2))"
             />
 
@@ -72,47 +72,47 @@ function RobotMarker({ robot, isSelected, onClick }) {
                 x1="0"
                 y1="0"
                 x2="0"
-                y2="-25"
+                y2={-markerSize - 7}
                 stroke="#9333ea"
-                strokeWidth="3"
+                strokeWidth={markerSize > 14 ? 3 : 2}
                 markerEnd="url(#arrowhead)"
                 transform={`rotate(${heading})`}
             />
 
             {/* Robot ID */}
             <text
-                y="4"
+                y={markerSize > 14 ? 6 : 5}
                 textAnchor="middle"
                 className="text-xs font-bold fill-white"
-                style={{ fontSize: '10px' }}
+                style={{ fontSize: markerSize > 14 ? '11px' : '9px' }}
             >
                 {robot.id.split('-')[1] || robot.id.substring(0, 3)}
             </text>
 
             {/* Status indicator */}
             <circle
-                cx="12"
-                cy="-12"
-                r="5"
+                cx={Math.max(8, Math.floor(markerSize * 0.7))}
+                cy={-Math.max(8, Math.floor(markerSize * 0.7))}
+                r={markerSize > 14 ? 5 : 4}
                 className={getStatusColor()}
                 stroke="white"
-                strokeWidth="2"
+                strokeWidth={1.5}
             />
 
             {/* Battery indicator (small bar) */}
             <rect
-                x="-8"
-                y="22"
-                width="16"
-                height="4"
+                x={-Math.max(6, Math.floor(markerSize * 0.6))}
+                y={markerSize + 6}
+                width={Math.max(12, Math.floor(markerSize * 1.2))}
+                height={markerSize > 14 ? 5 : 4}
                 rx="2"
                 fill="#e5e7eb"
             />
             <rect
-                x="-8"
-                y="22"
-                width={`${(robot.status?.battery || 0) * 0.16}`}
-                height="4"
+                x={-Math.max(6, Math.floor(markerSize * 0.6))}
+                y={markerSize + 6}
+                width={`${Math.max(12, Math.floor(markerSize * 1.2)) * ((robot.status?.battery || 0) / 100)}`}
+                height={markerSize > 14 ? 5 : 4}
                 rx="2"
                 fill={getBatteryColor() === 'green' ? '#22c55e' : getBatteryColor() === 'amber' ? '#f59e0b' : '#ef4444'}
             />
@@ -160,6 +160,7 @@ function FabMap() {
     const [selectedRobotId, setSelectedRobotId] = useState(null);
     const [mapDimensions] = useState({ width: 750, height: 500 });
     const [isMobile, setIsMobile] = useState(false);
+    const [isPortrait, setIsPortrait] = useState(false);
 
     const robots = useMemo(() => {
         return Object.values(currentRobots || {});
@@ -168,12 +169,17 @@ function FabMap() {
     const selectedRobot = selectedRobotId ? currentRobots[selectedRobotId] : null;
 
     useEffect(() => {
-        function onResize() {
+        function updateDims() {
             setIsMobile(window.innerWidth <= 768);
+            setIsPortrait(window.innerHeight > window.innerWidth);
         }
-        onResize();
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
+        updateDims();
+        window.addEventListener('resize', updateDims);
+        window.addEventListener('orientationchange', updateDims);
+        return () => {
+            window.removeEventListener('resize', updateDims);
+            window.removeEventListener('orientationchange', updateDims);
+        };
     }, []);
 
     // Determine which configured zone a coordinate belongs to
@@ -195,8 +201,8 @@ function FabMap() {
         const miniW = 160;
         const miniH = 110;
         const scaleX = miniW / mapDimensions.width;
-        const scaleY = miniH / mapDimensions.height;
-
+        const miniW = 200;
+        const miniH = 140;
         const zone = getZoneForRobot(robot);
 
         const robotX = robot ? 100 + (robot.location?.lng || 0) * 500 : null;
@@ -205,7 +211,7 @@ function FabMap() {
         return (
             <div className="mini-grid">
                 <svg viewBox={`0 0 ${miniW} ${miniH}`} width={miniW} height={miniH}>
-                    <rect x="0" y="0" width={miniW} height={miniH} rx="6" fill="#f8fafc" stroke="#e5e7eb" />
+                            <rect x="0" y="0" width={miniW} height={miniH} rx="6" fill="#ffffff" stroke="#d1d5db" />
                     {/* zones */}
                     {ZONES.map(z => (
                         <rect
@@ -217,7 +223,7 @@ function FabMap() {
                             rx={4}
                             fill={z.type === 'cleanroom' ? '#f3e8ff' : z.type === 'loading' ? '#ecfccb' : '#fff7ed'}
                             stroke="#c7c7cc"
-                            opacity={0.9}
+                            opacity={0.95}
                         />
                     ))}
 
@@ -227,17 +233,23 @@ function FabMap() {
                             <circle
                                 cx={robotX * scaleX}
                                 cy={robotY * scaleY}
-                                r={6}
+                                r={8}
                                 fill="#6b21a8"
                                 stroke="#fff"
                                 strokeWidth={1.5}
                             />
-                            <text x={robotX * scaleX + 8} y={robotY * scaleY + 4} fontSize={9} fill="#111827">{zone ? zone.name : 'Unknown'}</text>
+                            <text x={robotX * scaleX + 10} y={robotY * scaleY + 6} fontSize={10} fontWeight={700} fill="#111827">{zone ? zone.name : 'Unknown'}</text>
+                        </g>
                         </g>
                     )}
                 </svg>
             </div>
         );
+    }
+
+    // Remove entire map UI on small/mobile screens
+    if (isMobile || (typeof window !== 'undefined' && window.innerWidth <= 768)) {
+        return null;
     }
 
     return (
@@ -268,99 +280,126 @@ function FabMap() {
 
             {/* SVG Map */}
             <div className="relative bg-gradient-to-br from-gray-50 to-gray-100">
-                <svg
-                    viewBox={`0 0 ${mapDimensions.width} ${mapDimensions.height}`}
-                    className="w-full h-[400px]"
-                >
-                    {/* Defs */}
-                    <defs>
-                        <marker
-                            id="arrowhead"
-                            markerWidth="6"
-                            markerHeight="6"
-                            refX="3"
-                            refY="3"
-                            orient="auto"
-                        >
-                            <polygon
-                                points="0,0 6,3 0,6"
-                                fill="#9333ea"
-                            />
-                        </marker>
-                        <pattern
-                            id="grid"
-                            width="40"
-                            height="40"
-                            patternUnits="userSpaceOnUse"
-                        >
+                {!(isMobile && isPortrait) ? (
+                    <svg
+                        viewBox={`0 0 ${mapDimensions.width} ${mapDimensions.height}`}
+                        className="w-full"
+                        style={{ height: isMobile ? '320px' : '400px' }}
+                    >
+                        {/* Defs */}
+                        <defs>
+                            <marker
+                                id="arrowhead"
+                                markerWidth="6"
+                                markerHeight="6"
+                                refX="3"
+                                refY="3"
+                                orient="auto"
+                            >
+                                <polygon
+                                    points="0,0 6,3 0,6"
+                                    fill="#9333ea"
+                                />
+                            </marker>
+                            <pattern
+                                id="grid"
+                                width="40"
+                                height="40"
+                                patternUnits="userSpaceOnUse"
+                            >
+                                <path
+                                    d="M 40 0 L 0 0 0 40"
+                                    fill="none"
+                                    stroke={isMobile ? '#d1d5db' : '#e5e7eb'}
+                                    strokeWidth={isMobile ? 0.8 : 0.5}
+                                />
+                            </pattern>
+                        </defs>
+
+                        {/* Grid background */}
+                        <rect width="100%" height="100%" fill="url(#grid)" />
+
+                        {/* Zones */}
+                        {ZONES.map(zone => (
+                            <ZoneComponent key={zone.id} zone={zone} />
+                        ))}
+
+                        {/* Aisles */}
+                        {AISLES.map(aisle => (
                             <path
-                                d="M 40 0 L 0 0 0 40"
-                                fill="none"
-                                stroke="#e5e7eb"
-                                strokeWidth="0.5"
-                            />
-                        </pattern>
-                    </defs>
-
-                    {/* Grid background */}
-                    <rect width="100%" height="100%" fill="url(#grid)" />
-
-                    {/* Zones */}
-                    {ZONES.map(zone => (
-                        <ZoneComponent key={zone.id} zone={zone} />
-                    ))}
-
-                    {/* Aisles */}
-                    {AISLES.map(aisle => (
-                        <path
-                            key={aisle.id}
-                            d={aisle.isHorizontal
-                                ? `M ${aisle.points.split(' ')[0]} L ${aisle.points.split(' ')[1]}`
-                                : aisle.isVertical
+                                key={aisle.id}
+                                d={aisle.isHorizontal
                                     ? `M ${aisle.points.split(' ')[0]} L ${aisle.points.split(' ')[1]}`
-                                    : `M ${aisle.points}`
-                            }
-                            stroke="#9ca3af"
-                            strokeWidth="20"
-                            strokeLinecap="round"
-                            fill="none"
-                            opacity="0.3"
-                        />
-                    ))}
-
-                    {/* Task routes - draw dotted lines for active tasks */}
-                    {robots.map(robot => {
-                        if (!robot.task?.source && !robot.task?.destination) return null;
-
-                        const startX = 100 + (robot.location?.lng || 0) * 500;
-                        const startY = 100 + (robot.location?.lat || 0) * 300;
-                        // Mock destination (would come from task data)
-                        const endX = startX + 100;
-                        const endY = startY + 50;
-
-                        return (
-                            <path
-                                key={`route-${robot.id}`}
-                                d={`M ${startX} ${startY} L ${endX} ${endY}`}
-                                stroke="#9333ea"
-                                strokeWidth="2"
-                                strokeDasharray="6 4"
+                                    : aisle.isVertical
+                                        ? `M ${aisle.points.split(' ')[0]} L ${aisle.points.split(' ')[1]}`
+                                        : `M ${aisle.points}`
+                                }
+                                stroke="#9ca3af"
+                                strokeWidth="20"
+                                strokeLinecap="round"
                                 fill="none"
-                                opacity="0.6"
+                                opacity="0.3"
                             />
-                        );
-                    })}
+                        ))}
 
-                    {/* Robots */}
-                    {robots.map(robot => (
-                        <RobotMarker
-                            key={robot.id}
-                            robot={robot}
-                            isSelected={robot.id === selectedRobotId}
-                            onClick={() => setSelectedRobotId(robot.id === selectedRobotId ? null : robot.id)}
-                        />
-                    ))}
-                </svg>
+                        {/* Task routes - draw dotted lines for active tasks */}
+                        {robots.map(robot => {
+                            if (!robot.task?.source && !robot.task?.destination) return null;
+
+                            const startX = 100 + (robot.location?.lng || 0) * 500;
+                            const startY = 100 + (robot.location?.lat || 0) * 300;
+                            // Mock destination (would come from task data)
+                            const endX = startX + 100;
+                            const endY = startY + 50;
+
+                            return (
+                                <path
+                                    key={`route-${robot.id}`}
+                                    d={`M ${startX} ${startY} L ${endX} ${endY}`}
+                                    stroke="#9333ea"
+                                    strokeWidth="2"
+                                    strokeDasharray="6 4"
+                                    fill="none"
+                                    opacity="0.6"
+                                />
+                            );
+                        })}
+
+                        {/* Robots */}
+                        {robots.map(robot => (
+                            <RobotMarker
+                                key={robot.id}
+                                robot={robot}
+                                isSelected={robot.id === selectedRobotId}
+                                onClick={() => setSelectedRobotId(robot.id === selectedRobotId ? null : robot.id)}
+                                markerSize={isMobile ? 14 : 18}
+                            />
+                        ))}
+                    </svg>
+                ) : (
+                    <div className="portrait-summary p-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="font-semibold text-gray-900">Fab Overview</h4>
+                            <span className="text-sm text-gray-500">{robots.length} robot{robots.length !== 1 ? 's' : ''}</span>
+                        </div>
+
+                        <div className="flex items-start gap-3 mt-3">
+                            <MiniGrid robot={selectedRobot || robots[0]} />
+                            <div className="flex-1 text-sm">
+                                {selectedRobot ? (
+                                    <div className="space-y-2">
+                                        <div className="font-medium">{selectedRobot.id}</div>
+                                        <div className="text-gray-500">Status: {selectedRobot.status?.state || 'Unknown'}</div>
+                                        <div className="text-gray-500">Battery: {selectedRobot.status?.battery ?? '--'}%</div>
+                                        <div className="text-gray-500">Temp: {selectedRobot.environment?.temp ?? '--'}°C</div>
+                                    </div>
+                                ) : (
+                                    <div className="text-gray-500">Tap a robot on the map to see details</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Robot Info Overlay */}
                 {selectedRobot && (
@@ -409,7 +448,13 @@ function FabMap() {
                     </div>
                 )}
                 <style>{`
-                    .mini-grid { background: rgba(255,255,255,0.96); border-radius: 8px; box-shadow: 0 6px 18px rgba(15,23,42,0.12); padding: 6px; }
+                    .mini-grid { background: rgba(255,255,255,0.98); border-radius: 10px; box-shadow: 0 10px 24px rgba(15,23,42,0.14); padding: 8px; border: 1px solid rgba(15,23,42,0.04); }
+                    .mini-grid svg { display: block; }
+                    .mini-grid text { font-family: Inter, system-ui, sans-serif; font-weight: 700; }
+                    .mini-grid circle { transition: transform 0.3s ease; }
+                    .mini-grid circle:hover { transform: scale(1.15); }
+                    .portrait-summary { background: rgba(255,255,255,0.98); border-radius: 12px; border: 1px solid #e6e6e6; }
+                    .portrait-summary .font-medium { font-weight: 600; }
                     @media (min-width: 769px) { .mini-grid { display: none; } }
                 `}</style>
             </div>

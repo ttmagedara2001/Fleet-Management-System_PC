@@ -64,9 +64,8 @@ Example `fleetMS/robots/{robotId}/location` payload:
   "robotId": "R-001",
   "lat": 37.422033,
   "lng": -122.084095,
-  "heading": 90,
-  "speed_m_s": 0.6,
-  "accuracy_m": 3.2
+  "heading": 90, //use only if needed for your fleet
+  "speed_m_s": 0.6
 }
 ```
 
