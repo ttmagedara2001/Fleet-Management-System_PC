@@ -648,6 +648,45 @@ body {
   }
 }
 
+/* Mobile: reduce padding around map/canvas to 16px */
+@media (max-width: 480px) {
+  .fab-map {
+    padding: 16px;
+    box-sizing: border-box;
+  }
+
+  /* If the map sits inside a card-body, reduce that padding too so total whitespace is ~16px */
+  .card-body {
+    padding: 16px;
+  }
+}
+
+/* Ensure analysis controls (Refresh / Export / select) wrap and stay inside their card on small screens */
+@media (max-width: 480px) {
+  .analysis-controls {
+    justify-content: flex-start !important;
+    gap: 8px !important;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .analysis-controls .export-btn,
+  .analysis-controls button.export-btn {
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+  }
+
+  .analysis-controls select {
+    width: auto !important;
+  }
+
+  /* Reduce margin/padding so controls fit comfortably inside card */
+  .chartCard, .chart-card {
+    padding: 16px !important;
+  }
+}
+
 .robot-tooltip h4 {
   font-weight: 600;
   margin-bottom: 8px;

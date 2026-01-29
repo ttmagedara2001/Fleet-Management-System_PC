@@ -581,11 +581,11 @@ function Analysis() {
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px', marginBottom: '16px' }}>
-                    <button style={styles.exportBtn} onClick={fetchData} disabled={isLoading}>
-                        <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh
+                <div className="analysis-controls" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px', marginBottom: '16px' }}>
+                    <button className="export-btn" style={styles.exportBtn} onClick={fetchData} disabled={isLoading} aria-label="Refresh">
+                        <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
                     </button>
-                    <button style={styles.exportBtn} onClick={handleExportCSV}>
+                    <button className="export-btn" style={styles.exportBtn} onClick={handleExportCSV}>
                         <Download size={14} /> Export CSV
                     </button>
                     <select style={styles.select} value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
@@ -644,7 +644,7 @@ function Analysis() {
                                 </div>
                             ))}
                         </div>
-                        <button style={styles.exportBtn} onClick={fetchRobotHistory}><RefreshCw size={14} /> Refresh</button>
+                        <button className="export-btn" style={styles.exportBtn} onClick={fetchRobotHistory} aria-label="Refresh"><RefreshCw size={14} /></button>
                     </div>
                 </div>
 
