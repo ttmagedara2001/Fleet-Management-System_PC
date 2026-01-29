@@ -121,7 +121,3 @@ Firmware should acknowledge tasks by publishing `ack` to a `fleetMS/robots/{robo
 - Use `src/examples/gps_payload_examples.json` in the dashboard repo as sample MQTT payloads for development and testing
 - Use `src/examples/mqtt_firmware_payloads.md` for firmware- and MQTT-client-ready sample payloads (location, battery, status, tasks, progress, emergency stop).
 - See `GPS_COORDINATES_AND_MATH.md` for coordinate samples and the health/task math formulas implemented in `src/utils/telemetryMath.js`.
-
----
-
-If you want, I can add a template `platformio.ini` or a sample firmware skeleton for ESP32 with the MQTT topic handling shown above. Let me know which MCU you target.

@@ -1452,3 +1452,179 @@ textarea {
     height: 250px;
   }
 }
+
+/* Improve portrait responsiveness for narrow screens */
+@media (orientation: portrait) and (max-width: 768px) {
+  .header {
+    height: 56px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .header-title {
+    display: none; /* conserve horizontal space */
+  }
+
+  .header-device-selector {
+    min-width: 120px;
+    max-width: 60%;
+    font-size: 14px;
+  }
+
+  .header-datetime {
+    display: none; /* hide date/time in tight portrait */
+  }
+
+  .fab-map {
+    height: 220px;
+  }
+
+  .robot-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}
+
+/* Landscape on short devices - prioritize horizontal layout but reduce heights */
+@media (orientation: landscape) and (max-height: 520px) {
+  .header {
+    height: 56px;
+    padding: 0 12px;
+  }
+
+  .fab-map {
+    height: 200px;
+  }
+
+  .main-content {
+    padding: 12px;
+  }
+}
+
+/* Notification popover: full-width modal on small devices for easier interaction */
+.notification-popover {
+  position: absolute;
+  right: 24px;
+  top: calc(100% + 22px);
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: auto;
+  margin-right: 12px;
+}
+
+@media (max-width: 480px) {
+  .notification-popover {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: 64px !important;
+    bottom: 16px !important;
+    align-items: stretch;
+    justify-content: center;
+    overflow: auto;
+    padding: 8px;
+  }
+
+  .notification-popover .bg-white {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Make header icons more compact */
+  .header-icons { gap: 8px; }
+  .header-icon { width: 36px; height: 36px; }
+}
+
+/* Ensure touch targets are comfortable on phones */
+@media (max-width: 480px) {
+  .nav-item { padding: 14px; font-size: 15px; }
+  .sidebar-user { padding: 14px; }
+  .sidebar-hide-toggle { right: 8px; top: 10px; }
+}
+
+/* Settings page grids - stack vertically on mobile */
+.settings-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .settings-threshold-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.robot-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1024px) {
+  .robot-settings-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .robot-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* small responsive tweak for inner robot stat grid */
+.robot-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+@media (max-width: 480px) {
+  .robot-stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Device settings header + system toggle responsive rules */
+.device-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  gap: 12px;
+}
+
+.system-toggle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: white;
+  padding: 8px 16px;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+}
+
+@media (max-width: 768px) {
+  .device-settings-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .system-toggle {
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: 8px;
+    padding: 10px 12px;
+  }
+
+  .system-toggle span:first-child { margin-right: 6px; }
+}

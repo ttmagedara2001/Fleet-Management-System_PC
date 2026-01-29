@@ -73,5 +73,3 @@ Implementation note: see `src/utils/telemetryMath.js` for exact behavior and fal
 1. Run the app as you normally do (e.g., `npm run dev` for Vite setups).
 2. Open the dashboard and observe robot cards: the battery metric will now show a percent and health label (Good/Fair/Low/Critical).
 3. If tasks provide `progress`, `initialDistance`/`remainingDistance`, or `stepsCompleted`/`totalSteps`, the task progress bar will reflect the computed completion.
-
-If you want, I can also add unit tests for `src/utils/telemetryMath.js` — would you like that?

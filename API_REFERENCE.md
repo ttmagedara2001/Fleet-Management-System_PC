@@ -931,7 +931,3 @@ src/
     ├── Analysis.jsx           # Historical data charts
     └── Settings.jsx           # Threshold configuration
 ```
-
----
-
-_This reference document is specifically tailored for the Fleet Management System application using the ProtoNest IoT backend. Adapt the topics and data structures as your IoT device configuration evolves._

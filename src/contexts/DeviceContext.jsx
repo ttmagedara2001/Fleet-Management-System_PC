@@ -222,7 +222,8 @@ export function DeviceProvider({ children }) {
 
             const newAlert = {
                 ...alert,
-                id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                read: false
             };
 
             console.log('[Device] 🚨 New alert:', newAlert);
@@ -788,6 +789,16 @@ export function DeviceProvider({ children }) {
         setAlerts([]);
     }, []);
 
+    // Mark a specific alert as read
+    const markAlertRead = useCallback((alertId) => {
+        setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a));
+    }, []);
+
+    // Mark all alerts as read
+    const markAllAlertsRead = useCallback(() => {
+        setAlerts(prev => prev.map(a => ({ ...a, read: true })));
+    }, []);
+
     // Manage WebSocket Connection & Routing
     useEffect(() => {
         if (!isAuthenticated) return;
@@ -1006,6 +1017,8 @@ export function DeviceProvider({ children }) {
         addAlert,
         clearAlert,
         clearAllAlerts,
+        markAlertRead,
+        markAllAlertsRead,
 
         // Robot management
         registerRobot,

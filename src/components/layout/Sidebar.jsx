@@ -77,7 +77,6 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                         inset: 0,
                         background: 'rgba(0, 0, 0, 0.5)',
                         zIndex: 40,
-                        display: 'none',
                         opacity: isOpen ? 1 : 0,
                         transition: 'opacity 0.3s ease',
                         pointerEvents: isOpen ? 'auto' : 'none'

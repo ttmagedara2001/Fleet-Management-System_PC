@@ -5,12 +5,13 @@ import { useDevice } from '../../contexts/DeviceContext';
 
 function Header({ onMenuToggle, sidebarOpen }) {
     const { isAuthenticated } = useAuth();
-    const { devices, selectedDeviceId, setSelectedDeviceId, alerts, isConnected, clearAlert, clearAllAlerts } = useDevice();
+    const { devices, selectedDeviceId, setSelectedDeviceId, alerts, isConnected, clearAlert, clearAllAlerts, markAlertRead, markAllAlertsRead } = useDevice();
 
     const unreadAlerts = alerts.filter(a => !a.read).length;
     const [showNotifications, setShowNotifications] = useState(false);
     const notifRef = useRef(null);
-
+    const [isMobile, setIsMobile] = useState(false);
+    const [isPortrait, setIsPortrait] = useState(false);
     const [now, setNow] = useState(new Date());
     useEffect(() => {
         const t = setInterval(() => setNow(new Date()), 1000);
@@ -26,6 +27,33 @@ function Header({ onMenuToggle, sidebarOpen }) {
         if (showNotifications) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [showNotifications]);
+
+    useEffect(() => {
+        function onResize() {
+            setIsMobile(window.innerWidth <= 480);
+        }
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    useEffect(() => {
+        function onKey(e) {
+            if (e.key === 'Escape' && showNotifications) setShowNotifications(false);
+        }
+        if (showNotifications && isMobile) document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [showNotifications, isMobile]);
+    
+    useEffect(() => {
+        function onResize() {
+            setIsMobile(window.innerWidth <= 480);
+            setIsPortrait(window.innerHeight >= window.innerWidth);
+        }
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     // Helpers for pretty date/time formatting
     function getOrdinal(n) {
@@ -156,18 +184,26 @@ function Header({ onMenuToggle, sidebarOpen }) {
                         )}
                     </div>
 
-                    {showNotifications && (
+                    {showNotifications && !isMobile && (
                         <div className="notification-popover" role="dialog" aria-label="Notifications">
                             <div className="bg-white text-gray-900 shadow-lg rounded-md w-80 max-w-xs overflow-hidden">
                                 <div className="flex items-center justify-between px-3 py-2 border-b">
                                     <div className="font-semibold text-sm">Notifications</div>
                                     <div>
-                                        <button
-                                            className="text-xs text-blue-600 hover:underline"
-                                            onClick={() => { clearAllAlerts(); setShowNotifications(false); }}
-                                        >
-                                            Clear all
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <button
+                                                className="text-xs text-blue-600 hover:underline"
+                                                onClick={() => { markAllAlertsRead(); setShowNotifications(false); }}
+                                            >
+                                                Mark all read
+                                            </button>
+                                            <button
+                                                className="text-xs text-blue-600 hover:underline"
+                                                onClick={() => { clearAllAlerts(); setShowNotifications(false); }}
+                                            >
+                                                Clear all
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="max-h-64 overflow-auto">
@@ -177,6 +213,45 @@ function Header({ onMenuToggle, sidebarOpen }) {
                                         alerts.map(a => (
                                             <div key={a.id} className="p-3 border-b last:border-b-0 flex items-start gap-2">
                                                 <div className={`w-2 h-2 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-amber-500' : 'bg-green-400'}`} />
+                                                <div className="flex-1">
+                                                    <div className="text-sm font-medium">{a.message}</div>
+                                                    <div className="text-xs text-gray-500 mt-1">{new Date(a.timestamp).toLocaleString()}</div>
+                                                </div>
+                                                <div className="ml-2" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    <button className="text-xs text-blue-600" onClick={() => { markAlertRead(a.id); }}>
+                                                        Mark read
+                                                    </button>
+                                                    <button className="text-xs text-blue-600" onClick={() => { clearAlert(a.id); }}>
+                                                        Clear
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Mobile full-screen notifications modal */}
+                    {showNotifications && isMobile && (
+                        <div className="mobile-notif-backdrop" role="dialog" aria-modal="true" aria-label="Notifications" onClick={() => setShowNotifications(false)}>
+                            <div className="mobile-notif-card" onClick={(e) => e.stopPropagation()} ref={notifRef}>
+                                <div className="flex items-center justify-between px-4 py-3 border-b">
+                                    <div className="font-semibold">Notifications</div>
+                                        <div className="flex items-center gap-2">
+                                            <button className="text-sm text-blue-600" onClick={() => { markAllAlertsRead(); setShowNotifications(false); }}>Mark all read</button>
+                                            <button className="text-sm text-blue-600" onClick={() => { clearAllAlerts(); setShowNotifications(false); }}>Clear all</button>
+                                            <button className="text-xl text-gray-500" aria-label="Close" onClick={() => setShowNotifications(false)}>×</button>
+                                        </div>
+                                </div>
+                                <div className="overflow-auto py-3 px-2" style={{ maxHeight: '70vh' }}>
+                                    {alerts.length === 0 ? (
+                                        <div className="p-6 text-center text-sm text-gray-600">No notifications</div>
+                                    ) : (
+                                        alerts.map(a => (
+                                            <div key={a.id} className="p-3 border-b last:border-b-0 flex items-start gap-3">
+                                                <div className={`w-3 h-3 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-amber-500' : 'bg-green-400'}`} />
                                                 <div className="flex-1">
                                                     <div className="text-sm font-medium">{a.message}</div>
                                                     <div className="text-xs text-gray-500 mt-1">{new Date(a.timestamp).toLocaleString()}</div>
@@ -315,6 +390,29 @@ function Header({ onMenuToggle, sidebarOpen }) {
                     color: #6b7280;
                     font-size: 13px;
                 }
+                /* Mobile notifications modal */
+                .mobile-notif-backdrop {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0,0,0,0.45);
+                    z-index: 80;
+                    display: flex;
+                    align-items: flex-end;
+                    justify-content: center;
+                    padding: 12px;
+                }
+
+                .mobile-notif-card {
+                    width: 100%;
+                    max-width: 720px;
+                    background: white;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    box-shadow: 0 18px 40px rgba(2,6,23,0.2);
+                }
+                .mobile-notif-card-centered { max-width: 640px; width: 92%; border-radius: 14px; }
+                .mobile-notif-backdrop.centered { align-items: center; padding: 24px; }
+                .mobile-notif-card .border-b { border-bottom: 1px solid #EEF2FF; }
                 /* Date/time styles */
                 .header-datetime { 
                     min-width: 120px;

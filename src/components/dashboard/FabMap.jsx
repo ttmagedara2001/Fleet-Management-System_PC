@@ -159,12 +159,86 @@ function FabMap() {
     const { currentRobots, selectedDeviceId } = useDevice();
     const [selectedRobotId, setSelectedRobotId] = useState(null);
     const [mapDimensions] = useState({ width: 750, height: 500 });
+    const [isMobile, setIsMobile] = useState(false);
 
     const robots = useMemo(() => {
         return Object.values(currentRobots || {});
     }, [currentRobots]);
 
     const selectedRobot = selectedRobotId ? currentRobots[selectedRobotId] : null;
+
+    useEffect(() => {
+        function onResize() {
+            setIsMobile(window.innerWidth <= 768);
+        }
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    // Determine which configured zone a coordinate belongs to
+    function getZoneForRobot(robot) {
+        if (!robot || !robot.location) return null;
+        const x = 100 + (robot.location?.lng || 0) * 500;
+        const y = 100 + (robot.location?.lat || 0) * 300;
+
+        for (const zone of ZONES) {
+            if (x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height) {
+                return zone;
+            }
+        }
+        return null;
+    }
+
+    // Lightweight mini-grid that mirrors the main map in a compact view
+    function MiniGrid({ robot }) {
+        const miniW = 160;
+        const miniH = 110;
+        const scaleX = miniW / mapDimensions.width;
+        const scaleY = miniH / mapDimensions.height;
+
+        const zone = getZoneForRobot(robot);
+
+        const robotX = robot ? 100 + (robot.location?.lng || 0) * 500 : null;
+        const robotY = robot ? 100 + (robot.location?.lat || 0) * 300 : null;
+
+        return (
+            <div className="mini-grid">
+                <svg viewBox={`0 0 ${miniW} ${miniH}`} width={miniW} height={miniH}>
+                    <rect x="0" y="0" width={miniW} height={miniH} rx="6" fill="#f8fafc" stroke="#e5e7eb" />
+                    {/* zones */}
+                    {ZONES.map(z => (
+                        <rect
+                            key={z.id}
+                            x={z.x * scaleX}
+                            y={z.y * scaleY}
+                            width={z.width * scaleX}
+                            height={z.height * scaleY}
+                            rx={4}
+                            fill={z.type === 'cleanroom' ? '#f3e8ff' : z.type === 'loading' ? '#ecfccb' : '#fff7ed'}
+                            stroke="#c7c7cc"
+                            opacity={0.9}
+                        />
+                    ))}
+
+                    {/* robot marker */}
+                    {robot && (
+                        <g>
+                            <circle
+                                cx={robotX * scaleX}
+                                cy={robotY * scaleY}
+                                r={6}
+                                fill="#6b21a8"
+                                stroke="#fff"
+                                strokeWidth={1.5}
+                            />
+                            <text x={robotX * scaleX + 8} y={robotY * scaleY + 4} fontSize={9} fill="#111827">{zone ? zone.name : 'Unknown'}</text>
+                        </g>
+                    )}
+                </svg>
+            </div>
+        );
+    }
 
     return (
         <div className="card overflow-hidden">
@@ -328,6 +402,16 @@ function FabMap() {
                         </div>
                     </div>
                 )}
+                {/* Mini-grid overlay for mobile: shows robot location and zone */}
+                {isMobile && (
+                    <div className="absolute bottom-4 right-4">
+                        <MiniGrid robot={selectedRobot || robots[0]} />
+                    </div>
+                )}
+                <style>{`
+                    .mini-grid { background: rgba(255,255,255,0.96); border-radius: 8px; box-shadow: 0 6px 18px rgba(15,23,42,0.12); padding: 6px; }
+                    @media (min-width: 769px) { .mini-grid { display: none; } }
+                `}</style>
             </div>
         </div>
     );

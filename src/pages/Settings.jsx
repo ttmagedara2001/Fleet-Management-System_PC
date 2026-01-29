@@ -3,7 +3,9 @@ import {
     Thermometer,
     Battery,
     CheckCircle,
-    ChevronDown
+    ChevronDown,
+    Smartphone,
+    Power
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { updateStateDetails } from '../services/api';
@@ -61,6 +63,7 @@ function Settings() {
     const [settings, setSettings] = useState(loadSettings());
     const [deviceSaveMessage, setDeviceSaveMessage] = useState(null);
     const [robotSaveMessage, setRobotSaveMessage] = useState(null);
+    const [isMobile, setIsMobile] = useState(false);
 
     // 3. Derived Data
     // Safely extract current environment values from streaming device data
@@ -107,6 +110,15 @@ function Settings() {
         }
     };
     // 4. Handlers
+
+    useEffect(() => {
+        function onResize() {
+            setIsMobile(window.innerWidth <= 768);
+        }
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     // Update Device/System Settings (Nested updates)
     const updateDeviceSetting = (category, key, value) => {
@@ -236,13 +248,13 @@ function Settings() {
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
                 }}
             >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div className="device-settings-header">
                     <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', margin: 0 }}>
                         Device Settings
                     </h2>
 
                     {/* System Control Toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'white', padding: '8px 16px', borderRadius: '16px', border: '1px solid #E5E7EB' }}>
+                    <div className="system-toggle">
                         <span style={{ fontSize: '14px', fontWeight: '600', color: '#4B5563' }}>System Mode:</span>
                         <span style={{ fontSize: '14px', fontWeight: '800', color: '#7C3AED' }}>{settings.systemMode}</span>
                         <button
@@ -281,32 +293,27 @@ function Settings() {
                                 }
                             }}
                             style={{
-                                width: '48px',
-                                height: '26px',
-                                borderRadius: '13px',
+                                width: '64px',
+                                height: '34px',
+                                borderRadius: '18px',
                                 border: 'none',
                                 cursor: 'pointer',
-                                position: 'relative',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
                                 background: settings.systemMode === 'AUTOMATIC' ? '#7C3AED' : '#D1D5DB',
                                 transition: 'background 0.3s'
                             }}
                         >
-                            <span style={{
-                                position: 'absolute',
-                                top: '3px',
-                                left: settings.systemMode === 'AUTOMATIC' ? '25px' : '3px',
-                                width: '20px',
-                                height: '20px',
-                                background: 'white',
-                                borderRadius: '50%',
-                                transition: 'left 0.3s'
-                            }} />
+                            <Power size={16} style={{ color: settings.systemMode === 'AUTOMATIC' ? '#fff' : '#6B7280' }} />
+                            <Smartphone size={16} style={{ color: settings.systemMode === 'AUTOMATIC' ? '#fff' : '#6B7280' }} />
                         </button>
                     </div>
                 </div>
 
                 {/* Expanded Threshold Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                <div className="settings-threshold-grid">
                     {[
                         { title: 'Temperature', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
                         { title: 'Humidity', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
@@ -413,12 +420,7 @@ function Settings() {
                         <p style={{ fontSize: '16px', color: '#6B7280' }}>Waiting for robot data sync...</p>
                     </div>
                 ) : (
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(5, 1fr)',
-                        gap: '12px',
-                        marginBottom: '24px'
-                    }}>
+                    <div className="robot-settings-grid">
                         {connectedRobots.map((robot, index) => {
                             const robotId = robot.id;
                             const robotSettings = settings.robotSettings?.[robotId] || {};
@@ -493,7 +495,7 @@ function Settings() {
                                         </div>
                                     </div>
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                                    <div className="robot-stat-grid" style={{ gap: '6px' }}>
                                         {[
                                             { icon: <Battery size={12} />, label: 'Min%', key: 'batteryMin', def: '20' },
                                             { icon: <Thermometer size={12} />, label: 'Min°', key: 'tempMin', def: '20' },
