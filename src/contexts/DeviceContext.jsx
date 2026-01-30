@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { connectWebSocket } from '../services/webSocketClient';
-import { getStateDetails, updateStateDetails } from '../services/api';
+import { getStateDetails, updateStateDetails, getTopicStreamData, getTimeRange } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
 const DeviceContext = createContext(null);
@@ -302,7 +302,12 @@ export function DeviceProvider({ children }) {
             else if (batt <= thresholds.battery.low) sev.battery = 'warning';
         }
         if (temp != null) {
-            if (temp > 40) sev.temp = 'warning';
+            // Use configured thresholds: below min or above max => warning; above critical => critical
+            if (temp > thresholds.temperature.critical) {
+                sev.temp = 'critical';
+            } else if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) {
+                sev.temp = 'warning';
+            }
         }
         return sev;
     }, []);
@@ -647,7 +652,7 @@ export function DeviceProvider({ children }) {
     // Handle robot temperature updates
     // Handle robot temperature updates
     const handleRobotTempUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖🌡️ Robot temp update:', robotId, payload);
+        console.log('[Device] 🤖 Robot stream data update:', robotId, payload);
 
         // Unwrap payload if nested (though routeStreamData does this, sometimes structure varies)
         const data = payload.payload || payload;
@@ -1119,6 +1124,62 @@ export function DeviceProvider({ children }) {
             setIsConnected(false);
         };
     }, [isAuthenticated, selectedDeviceId, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate, handleRobotOnlineStatus]);
+
+    // Poll robot topics every 10s to ensure status updates from topic `fleetMS/robots/<robotId>` are applied
+    useEffect(() => {
+        if (!isAuthenticated || !selectedDeviceId) return;
+
+        let cancelled = false;
+
+        const pollOnce = async () => {
+            try {
+                const deviceRobots = Object.keys(robots[selectedDeviceId] || {});
+                if (deviceRobots.length === 0) return;
+
+                // small time window (last 2 minutes) to capture recent messages
+                const { startTime, endTime } = getTimeRange(0.0333); // ~2 minutes
+
+                await Promise.all(deviceRobots.map(async (robotId) => {
+                    if (cancelled) return;
+                    try {
+                        const res = await getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}`, startTime, endTime, '0', '5');
+                        if (res?.status === 'Success' && Array.isArray(res.data) && res.data.length > 0) {
+                            // Use most recent message
+                            const latest = res.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                            let payload = {};
+                            try { payload = JSON.parse(latest.payload || '{}'); } catch (e) { payload = latest.payload || {}; }
+
+                            // Dispatch updates based on payload keys
+                            if (payload.temperature !== undefined || payload.temp !== undefined) {
+                                handleRobotTempUpdate(selectedDeviceId, robotId, payload);
+                            }
+                            if (payload.battery !== undefined || payload.level !== undefined) {
+                                handleRobotBatteryUpdate(selectedDeviceId, robotId, payload);
+                            }
+                            if (payload.lat !== undefined || payload.lng !== undefined || payload.location !== undefined) {
+                                handleRobotLocationUpdate(selectedDeviceId, robotId, payload.location || payload);
+                            }
+                            if (payload.status !== undefined || payload.state !== undefined || payload.obstacle !== undefined) {
+                                handleRobotStatusUpdate(selectedDeviceId, robotId, payload);
+                            }
+                            if (payload.task !== undefined || payload.tasks !== undefined) {
+                                handleRobotTaskUpdate(selectedDeviceId, robotId, payload.task ?? payload);
+                            }
+                        }
+                    } catch (e) {
+                        // ignore per-robot errors
+                    }
+                }));
+            } catch (e) {
+                // poll error
+            }
+        };
+
+        // start immediate then interval
+        pollOnce();
+        const id = setInterval(pollOnce, 10000);
+        return () => { cancelled = true; clearInterval(id); };
+    }, [isAuthenticated, selectedDeviceId, robots, handleRobotTempUpdate, handleRobotBatteryUpdate, handleRobotLocationUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
 
     // Note: Robot subscriptions removed - all data comes through main STREAM/STATE topics
 

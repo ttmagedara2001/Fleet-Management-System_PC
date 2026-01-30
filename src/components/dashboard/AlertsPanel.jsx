@@ -26,7 +26,7 @@ function AlertsPanel() {
             {/* Header */}
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <Bell size={18} className="text-purple-600" />
+                    <Bell size={18} className="text-primary-600" />
                     <h3 className="font-semibold text-gray-900">Active Alerts</h3>
                     {alerts.length > 0 && (
                         <span className={`badge ${criticalAlerts.length > 0 ? 'badge-critical' : 'badge-warning'}`}>
@@ -37,7 +37,7 @@ function AlertsPanel() {
                 {alerts.length > 0 && (
                     <button
                         onClick={clearAllAlerts}
-                        className="text-xs text-gray-500 hover:text-purple-600 transition-colors"
+                        className="text-xs text-gray-500 hover:text-primary-600 transition-colors"
                     >
                         Clear all
                     </button>
@@ -56,8 +56,7 @@ function AlertsPanel() {
                                 <div className="flex items-start gap-2">
                                     <AlertTriangle
                                         size={16}
-                                        className={`mt-0.5 flex-shrink-0 ${alert.type === 'critical' ? 'text-red-500' : 'text-amber-500'
-                                            }`}
+                                        className={`mt-0.5 flex-shrink-0 ${alert.type === 'critical' ? 'text-red-500' : 'text-green-500'}`}
                                     />
                                     <div>
                                         <p className="text-sm font-medium text-gray-900">{alert.message}</p>
@@ -98,7 +97,7 @@ function AlertsPanel() {
                             </span>
                         )}
                         {warningAlerts.length > 0 && (
-                            <span className="text-amber-600 font-medium">
+                            <span className="text-green-600 font-medium">
                                 {warningAlerts.length} Warning
                             </span>
                         )}

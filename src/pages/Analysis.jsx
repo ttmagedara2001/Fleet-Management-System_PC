@@ -432,26 +432,26 @@ function Analysis() {
 
     // Styles (Condensed for brevity, same as original but removed comments/logs inside)
     const styles = {
-        container: { padding: '24px', maxWidth: '100%', minHeight: '100%' },
-        header: { marginBottom: '24px' },
-        title: { fontSize: '24px', fontWeight: '600', color: '#1F2937', marginBottom: '4px' },
-        chartCard: { background: 'white', borderRadius: '16px', border: '1px solid #E5E7EB', padding: '24px', marginBottom: '24px' },
-        chartHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' },
-        chartTitle: { fontSize: '16px', fontWeight: '600', color: '#374151' },
-        filterGroup: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-        filterPill: { padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '500', border: '1px solid #E5E7EB', background: 'white', color: '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' },
+        container: { padding: '12px', maxWidth: '100%', minHeight: '100%' },
+        header: { marginBottom: '16px' },
+        title: { fontSize: '22px', fontWeight: '600', color: '#1F2937', marginBottom: '4px' },
+        chartCard: { background: 'white', borderRadius: '14px', border: '1px solid #E5E7EB', padding: '14px', marginBottom: '16px' },
+        chartHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' },
+        chartTitle: { fontSize: '15px', fontWeight: '600', color: '#374151' },
+        filterGroup: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+        filterPill: { padding: '5px 10px', borderRadius: '18px', fontSize: '12px', fontWeight: '500', border: '1px solid #E5E7EB', background: 'white', color: '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' },
         filterPillActive: { background: '#F3F4F6', borderColor: '#9CA3AF' },
-        legendGroup: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' },
-        legendItem: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
-        legendDot: { width: '10px', height: '10px', borderRadius: '50%' },
-        exportBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', color: '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
-        select: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #E5E7EB', fontSize: '13px', color: '#374151', background: 'white', cursor: 'pointer' },
-        tableCard: { background: 'white', borderRadius: '16px', border: '1px solid #E5E7EB', overflow: 'hidden', marginTop: '24px' },
-        tableTitle: { fontSize: '18px', fontWeight: '600', color: '#1F2937', padding: '20px 24px', borderBottom: '1px solid #E5E7EB' },
+        legendGroup: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+        legendItem: { display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '18px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
+        legendDot: { width: '9px', height: '9px', borderRadius: '50%' },
+        exportBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', color: '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
+        select: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #E5E7EB', fontSize: '13px', color: '#374151', background: 'white', cursor: 'pointer' },
+        tableCard: { background: 'white', borderRadius: '14px', border: '1px solid #E5E7EB', overflow: 'hidden', marginTop: '16px' },
+        tableTitle: { fontSize: '16px', fontWeight: '600', color: '#1F2937', padding: '12px 16px', borderBottom: '1px solid #E5E7EB' },
         table: { width: '100%', borderCollapse: 'collapse' },
-        th: { textAlign: 'left', padding: '16px 24px', fontSize: '14px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #E5E7EB', background: '#FAFAFA' },
-        td: { padding: '16px 24px', fontSize: '14px', color: '#6B7280', borderBottom: '1px solid #F3F4F6' },
-        statusBadge: { padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }
+        th: { textAlign: 'left', padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #E5E7EB', background: '#FAFAFA' },
+        td: { padding: '12px 16px', fontSize: '13px', color: '#6B7280', borderBottom: '1px solid #F3F4F6' },
+        statusBadge: { padding: '4px 10px', borderRadius: '18px', fontSize: '12px', fontWeight: '500' }
     };
 
     const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED', pressure: '#3B82F6' };
@@ -575,7 +575,7 @@ function Analysis() {
                     </select>
                 </div>
 
-                <div style={{ height: '350px', width: '100%' }}>
+                <div style={{ height: '350px', width: '100%', minWidth: 0 }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
                             <defs>
@@ -627,7 +627,7 @@ function Analysis() {
                     </div>
                 </div>
 
-                <div style={{ height: '400px', width: '100%' }}>
+                <div style={{ height: '400px', width: '100%', minWidth: 0 }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={robotChartData} margin={{ top: 20, right: 60, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -646,13 +646,13 @@ function Analysis() {
             {/* Robot Task History Table */}
             <div style={styles.tableCard}>
                 <h2 style={styles.tableTitle}>Fleet Task History</h2>
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
                     <table style={styles.table}>
                         <thead>
                             <tr>
                                 <th style={styles.th}>Robot ID</th>
                                 <th style={styles.th}>Name</th>
-                                <th style={styles.th}>Current Task</th>
+                                <th style={styles.th}>Task</th>
                                 <th style={styles.th}>Status</th>
                             </tr>
                         </thead>

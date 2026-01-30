@@ -22,14 +22,14 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
         const battery = robot.status?.battery;
         if (!battery && battery !== 0) return 'gray';
         if (battery > 60) return 'green';
-        if (battery > 30) return 'amber';
+        if (battery > 30) return 'primary';
         return 'red';
     };
 
     const getStatusColor = () => {
         const state = robot.status?.state;
         if (state === 'MOVING' || state === 'ACTIVE') return 'bg-green-500';
-        if (state === 'CHARGING') return 'bg-amber-500';
+        if (state === 'CHARGING') return 'bg-green-500';
         if (state === 'ERROR' || state === 'STOPPED') return 'bg-red-500';
         return 'bg-gray-400';
     };
@@ -60,8 +60,8 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
 
             {/* Robot body */}
             <circle
-                r={markerSize}
-                className="fill-purple-600"
+                        r={markerSize}
+                        className="fill-primary-600"
                 stroke="white"
                 strokeWidth={markerSize > 14 ? 3 : 2}
                 filter="drop-shadow(0 2px 4px rgba(0,0,0,0.2))"
@@ -94,7 +94,15 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
                 cx={Math.max(8, Math.floor(markerSize * 0.7))}
                 cy={-Math.max(8, Math.floor(markerSize * 0.7))}
                 r={markerSize > 14 ? 5 : 4}
-                className={getStatusColor()}
+                // Turn only this small status dot green when recent stream data updated the robot
+                fill={(function() {
+                    const last = robot.lastUpdate || 0;
+                    const justUpdated = Date.now() - last < 3000; // 3s window
+                    if (justUpdated) return '#22c55e'; // green
+                    const state = robot.status?.state;
+                    if (state === 'ERROR' || state === 'STOPPED') return '#ef4444'; // red for errors
+                    return '#9ca3af'; // neutral gray when not freshly updated
+                })()}
                 stroke="white"
                 strokeWidth={1.5}
             />
@@ -114,7 +122,7 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
                 width={`${Math.max(12, Math.floor(markerSize * 1.2)) * ((robot.status?.battery || 0) / 100)}`}
                 height={markerSize > 14 ? 5 : 4}
                 rx="2"
-                fill={getBatteryColor() === 'green' ? '#22c55e' : getBatteryColor() === 'amber' ? '#f59e0b' : '#ef4444'}
+                fill={getBatteryColor() === 'green' ? '#22c55e' : getBatteryColor() === 'primary' ? '#7C3AED' : '#ef4444'}
             />
         </g>
     );
@@ -123,9 +131,9 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
 function ZoneComponent({ zone }) {
     const getZoneClass = () => {
         switch (zone.type) {
-            case 'cleanroom': return 'fill-purple-100 stroke-purple-300';
+            case 'cleanroom': return 'fill-primary-100 stroke-primary-300';
             case 'loading': return 'fill-green-100 stroke-green-300';
-            case 'storage': return 'fill-amber-100 stroke-amber-300';
+            case 'storage': return 'fill-green-100 stroke-green-300';
             default: return 'fill-gray-100 stroke-gray-300';
         }
     };
@@ -168,6 +176,20 @@ function FabMap() {
 
     const selectedRobot = selectedRobotId ? currentRobots[selectedRobotId] : null;
 
+    // Structured console logging for debugging: summary when robot data or selection changes
+    useEffect(() => {
+        const total = robots.length;
+        const missingLocation = robots.filter(r => !r.location).length;
+        const lowBattery = robots.filter(r => (r.status?.battery ?? 100) < 20).length;
+        const errorCount = robots.filter(r => ['ERROR', 'STOPPED'].includes(r.status?.state)).length;
+
+        console.groupCollapsed(`[FabMap] Snapshot — ${new Date().toISOString()}`);
+        console.info('Summary:', { total, selected: selectedRobotId ?? 'none', map: `${mapDimensions.width}x${mapDimensions.height}` });
+        console.info('Issues:', { missingLocation, lowBattery, errorCount });
+        console.debug('Robot IDs:', robots.map(r => r.id));
+        console.groupEnd();
+    }, [robots.length, selectedRobotId, mapDimensions.width, mapDimensions.height]);
+
     useEffect(() => {
         function updateDims() {
             setIsMobile(window.innerWidth <= 768);
@@ -198,11 +220,10 @@ function FabMap() {
 
     // Lightweight mini-grid that mirrors the main map in a compact view
     function MiniGrid({ robot }) {
-        const miniW = 160;
-        const miniH = 110;
-        const scaleX = miniW / mapDimensions.width;
         const miniW = 200;
         const miniH = 140;
+        const scaleX = miniW / mapDimensions.width;
+        const scaleY = miniH / mapDimensions.height;
         const zone = getZoneForRobot(robot);
 
         const robotX = robot ? 100 + (robot.location?.lng || 0) * 500 : null;
@@ -240,7 +261,6 @@ function FabMap() {
                             />
                             <text x={robotX * scaleX + 10} y={robotY * scaleY + 6} fontSize={10} fontWeight={700} fill="#111827">{zone ? zone.name : 'Unknown'}</text>
                         </g>
-                        </g>
                     )}
                 </svg>
             </div>
@@ -264,7 +284,7 @@ function FabMap() {
                 </div>
                 <div className="flex items-center gap-4 text-xs">
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-purple-200 border-2 border-purple-400" />
+                        <div className="w-3 h-3 rounded bg-primary-100 border-2 border-primary-300" />
                         <span>Cleanroom</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -272,7 +292,7 @@ function FabMap() {
                         <span>Loading</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded bg-amber-200 border-2 border-amber-400" />
+                            <div className="w-3 h-3 rounded bg-amber-200 border-2 border-amber-400" />
                         <span>Storage</span>
                     </div>
                 </div>
@@ -433,7 +453,7 @@ function FabMap() {
                             {selectedRobot.task && (
                                 <div className="pt-2 border-t border-gray-100">
                                     <p className="text-xs text-gray-400">Current Task</p>
-                                    <p className="font-medium text-purple-600 text-xs">
+                                    <p className="font-medium text-primary-600 text-xs">
                                         {selectedRobot.task.type}: {selectedRobot.task.source} → {selectedRobot.task.destination}
                                     </p>
                                 </div>

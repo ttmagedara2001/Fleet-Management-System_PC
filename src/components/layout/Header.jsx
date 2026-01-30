@@ -87,6 +87,11 @@ function Header({ onMenuToggle, sidebarOpen }) {
         return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
+    // Mobile notification modal CSS classes (computed here so JSX is simple)
+    // Always center the mobile modal so it appears in the middle of the screen
+    const mobileNotifCentered = true;
+    const mobileBackdropCls = `mobile-notif-backdrop ${mobileNotifCentered ? 'centered' : ''}`;
+    const mobileCardCls = `mobile-notif-card ${mobileNotifCentered ? 'mobile-notif-card-centered' : ''}`;
     return (
         <header className="header">
             {/* Mobile Menu Button - Hamburger/Close icon */}
@@ -212,7 +217,7 @@ function Header({ onMenuToggle, sidebarOpen }) {
                                     ) : (
                                         alerts.map(a => (
                                             <div key={a.id} className="p-3 border-b last:border-b-0 flex items-start gap-2">
-                                                <div className={`w-2 h-2 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-amber-500' : 'bg-green-400'}`} />
+                                                    <div className={`w-2 h-2 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-green-400' : 'bg-green-400'}`} />
                                                 <div className="flex-1">
                                                     <div className="text-sm font-medium">{a.message}</div>
                                                     <div className="text-xs text-gray-500 mt-1">{new Date(a.timestamp).toLocaleString()}</div>
@@ -235,15 +240,15 @@ function Header({ onMenuToggle, sidebarOpen }) {
 
                     {/* Mobile full-screen notifications modal */}
                     {showNotifications && isMobile && (
-                        <div className="mobile-notif-backdrop" role="dialog" aria-modal="true" aria-label="Notifications" onClick={() => setShowNotifications(false)}>
-                            <div className="mobile-notif-card" onClick={(e) => e.stopPropagation()} ref={notifRef}>
+                        <div className={mobileBackdropCls} role="dialog" aria-modal="true" aria-label="Notifications" onClick={() => setShowNotifications(false)}>
+                            <div className={mobileCardCls} onClick={(e) => e.stopPropagation()} ref={notifRef}>
                                 <div className="flex items-center justify-between px-4 py-3 border-b">
                                     <div className="font-semibold">Notifications</div>
-                                        <div className="flex items-center gap-2">
-                                            <button className="text-sm text-blue-600" onClick={() => { markAllAlertsRead(); setShowNotifications(false); }}>Mark all read</button>
-                                            <button className="text-sm text-blue-600" onClick={() => { clearAllAlerts(); setShowNotifications(false); }}>Clear all</button>
-                                            <button className="text-xl text-gray-500" aria-label="Close" onClick={() => setShowNotifications(false)}>×</button>
-                                        </div>
+                                    <div className="flex items-center gap-2">
+                                        <button className="text-sm text-blue-600" onClick={() => { markAllAlertsRead(); setShowNotifications(false); }}>Mark all read</button>
+                                        <button className="text-sm text-blue-600" onClick={() => { clearAllAlerts(); setShowNotifications(false); }}>Clear all</button>
+                                        <button className="text-lg text-gray-600 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center" aria-label="Close" onClick={() => setShowNotifications(false)}>×</button>
+                                    </div>
                                 </div>
                                 <div className="overflow-auto py-3 px-2" style={{ maxHeight: '70vh' }}>
                                     {alerts.length === 0 ? (
@@ -251,7 +256,7 @@ function Header({ onMenuToggle, sidebarOpen }) {
                                     ) : (
                                         alerts.map(a => (
                                             <div key={a.id} className="p-3 border-b last:border-b-0 flex items-start gap-3">
-                                                <div className={`w-3 h-3 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-amber-500' : 'bg-green-400'}`} />
+                                                <div className={`w-3 h-3 rounded-full mt-1 ${a.type === 'critical' ? 'bg-red-500' : a.type === 'warning' ? 'bg-green-400' : 'bg-green-400'}`} />
                                                 <div className="flex-1">
                                                     <div className="text-sm font-medium">{a.message}</div>
                                                     <div className="text-xs text-gray-500 mt-1">{new Date(a.timestamp).toLocaleString()}</div>

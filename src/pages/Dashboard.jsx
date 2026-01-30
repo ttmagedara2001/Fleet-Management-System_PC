@@ -58,9 +58,17 @@ function FabMap() {
     };
 
     const getStatusColor = (robot) => {
+        // Prefer computed severity when available
+        const sev = robot?.severity;
+        if (sev) {
+            // If either battery or temp is critical -> critical color
+                if (sev.battery === 'critical' || sev.temp === 'critical') return '#DC2626';
+                if (sev.battery === 'warning' || sev.temp === 'warning') return '#22C55E';
+                return '#22C55E';
+        }
         const state = robot?.status?.state?.toUpperCase();
         if (state === 'ERROR' || state === 'STOPPED') return '#EF4444';
-        if (state === 'CHARGING') return '#F59E0B';
+        if (state === 'CHARGING') return '#22C55E';
         if (state === 'ACTIVE' || state === 'MOVING') return '#22C55E';
         return '#9CA3AF'; // Gray for Ready/Idle
     };
@@ -68,14 +76,14 @@ function FabMap() {
     const getBatteryColorStyle = (battery) => {
         if (battery == null) return { color: '#111827' };
         if (battery < 15) return { color: '#DC2626' }; // red-600
-        if (battery < 40) return { color: '#F59E0B' }; // amber
+        if (battery < 40) return { color: '#22C55E' }; // map amber -> green
         return { color: '#16A34A' }; // green-600
     };
 
     const getProgressColorStyle = (progress) => {
         if (progress == null) return { color: '#111827' };
         if (progress < 20) return { color: '#DC2626' };
-        if (progress < 50) return { color: '#F59E0B' };
+        if (progress < 50) return { color: '#22C55E' };
         return { color: '#16A34A' };
     };
 
@@ -519,8 +527,17 @@ function RobotDetails() {
     const robots = Object.values(currentRobots || {});
 
     const getStatusClass = (robot) => {
+        // Prefer severity provided by DeviceContext
+        const sev = robot.severity;
+        if (robot.status?.state === 'OFFLINE') return 'offline';
+        if (sev) {
+            if (sev.battery === 'critical' || sev.temp === 'critical') return 'critical';
+            if (sev.battery === 'warning' || sev.temp === 'warning') return 'warning';
+            return 'online';
+        }
+
         const battery = robot.status?.battery;
-        if (!battery || robot.status?.state === 'OFFLINE') return 'offline';
+        if (!battery) return 'offline';
         if (battery < 30) return 'warning';
         return 'online';
     };
@@ -535,7 +552,7 @@ function RobotDetails() {
     const getBatteryColorStyle = (battery) => {
         if (battery == null) return { color: '#111827' };
         if (battery < 15) return { color: '#DC2626' };
-        if (battery < 40) return { color: '#F59E0B' };
+        if (battery < 40) return { color: '#7C3AED' };
         return { color: '#16A34A' };
     };
 

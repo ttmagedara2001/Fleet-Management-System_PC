@@ -40,7 +40,25 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error(`❌ API Error [${error.response?.status || "Network"}]`);
+    try {
+      // Debounce identical errors to avoid log spam during network outages
+      const status = error.response?.status || "Network";
+      const url = error.config?.url || "unknown";
+      const key = `${status}:${url}`;
+      const now = Date.now();
+      if (
+        !api._lastError ||
+        api._lastError.key !== key ||
+        now - api._lastError.time > 5000
+      ) {
+        // store lightweight last-error info
+        api._lastError = { key, time: now };
+        console.error(`❌ API Error [${status}] ${url}`);
+      }
+    } catch (e) {
+      // Fallback to safe logging if something unexpected occurs
+      console.error("❌ API Error", error);
+    }
     return Promise.reject(error);
   },
 );

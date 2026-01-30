@@ -5,8 +5,8 @@
   --primary-purple: #6B21A8;
   --primary-purple-light: #9333EA;
   --primary-purple-dark: #581C87;
-  --accent-gold: #F59E0B;
-  --accent-gold-light: #FCD34D;
+  --accent-gold: #7C3AED; /* purple accent (used as 'accent' token) */
+  --accent-gold-light: #D8B4FE; /* lighter purple */
   --status-normal: #22C55E;
   --status-warning: #F59E0B;
   --status-critical: #EF4444;
@@ -1012,6 +1012,11 @@ body {
   box-shadow: 0 0 8px var(--status-critical);
 }
 
+.robot-card-status.critical {
+  background: var(--status-critical);
+  box-shadow: 0 0 10px var(--status-critical);
+}
+
 .robot-card-id {
   font-size: 16px;
   font-weight: 800;
@@ -1591,8 +1596,8 @@ textarea {
 .settings-threshold-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 @media (max-width: 768px) {
@@ -1638,8 +1643,8 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  gap: 12px;
+  margin-bottom: 12px;
+  gap: 8px;
 }
 
 .system-toggle {

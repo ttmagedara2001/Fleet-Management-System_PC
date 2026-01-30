@@ -57,7 +57,7 @@ const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay',
 function Settings() {
     // 1. Context Access
     // Ensure selectedDeviceId is available from context for API calls
-    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState } = useDevice();
+    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState, isConnected } = useDevice();
 
     // 2. Local State
     const [settings, setSettings] = useState(loadSettings());
@@ -82,25 +82,42 @@ function Settings() {
 
     // Status helpers (match logic used in DeviceEnvironmentPanel)
     const getTemperatureStatus = (temp) => {
+        const thresholds = getThresholdsLocal();
         if (temp == null) return 'normal';
-        if (temp > 28) return 'critical';
-        if (temp > 25) return 'warning';
+        if (temp > thresholds.temperature.critical) return 'critical';
+        if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) return 'warning';
         return 'normal';
     };
 
     const getHumidityStatus = (hum) => {
+        const thresholds = getThresholdsLocal();
         if (hum == null) return 'normal';
-        if (hum > 60 || hum < 30) return 'critical';
-        if (hum > 55 || hum < 35) return 'warning';
+        if (hum > thresholds.humidity.critical) return 'critical';
+        if (hum > thresholds.humidity.max || hum < thresholds.humidity.min) return 'warning';
         return 'normal';
     };
 
     const getPressureStatus = (p) => {
+        const thresholds = getThresholdsLocal();
         if (p == null) return 'normal';
-        if (p < 980 || p > 1050) return 'critical';
-        if (p < 990 || p > 1040) return 'warning';
+        if (p < thresholds.pressure.min || p > thresholds.pressure.max) return 'critical';
+        if (p < (thresholds.pressure.min + 10) || p > (thresholds.pressure.max - 10)) return 'warning';
         return 'normal';
     };
+
+    // Read thresholds from localStorage saved settings or fallback to defaults
+    function getThresholdsLocal() {
+        try {
+            const saved = localStorage.getItem('fabrix_settings');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return parsed.thresholds || { temperature: { min: 18, max: 28, critical: 32 }, humidity: { min: 30, max: 60, critical: 75 }, pressure: { min: 980, max: 1040 } };
+            }
+        } catch (e) {
+            // ignore and fall through
+        }
+        return { temperature: { min: 18, max: 28, critical: 32 }, humidity: { min: 30, max: 60, critical: 75 }, pressure: { min: 980, max: 1040 } };
+    }
 
     const getValueColorStyle = (status) => {
         switch (status) {
@@ -237,21 +254,27 @@ function Settings() {
     };
 
     return (
-        <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Device Settings Section */}
             <div
                 style={{
                     background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
-                    borderRadius: '24px',
-                    padding: '24px 28px',
+                    borderRadius: '20px',
+                    padding: '14px 16px',
                     border: '1px solid #DDD6FE',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
                 }}
             >
-                <div className="device-settings-header">
-                    <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', margin: 0 }}>
-                        Device Settings
-                    </h2>
+                <div className="device-settings-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', margin: 0 }}>
+                            Device Settings
+                        </h2>
+                        <div title={isConnected ? 'Live (connected)' : 'Disconnected'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 9999, background: isConnected ? '#22C55E' : '#DC2626', boxShadow: isConnected ? '0 0 8px rgba(34,197,94,0.32)' : 'none' }} />
+                            <span style={{ fontSize: 12, color: '#6B7280' }}>{isConnected ? 'Live' : 'Disconnected'}</span>
+                        </div>
+                    </div>
 
                     {/* System Control Toggle */}
                     <div className="system-toggle">
@@ -379,7 +402,7 @@ function Settings() {
                         style={{
                             width: '100%',
                             padding: '14px 24px',
-                            background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+                            background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
                             color: 'white',
                             border: 'none',
                             borderRadius: '50px',
@@ -448,9 +471,10 @@ function Settings() {
                                             width: '10px',
                                             height: '10px',
                                             borderRadius: '50%',
-                                            background: status === 'online' ? '#22C55E' : status === 'warning' ? '#F59E0B' : '#EF4444',
-                                            boxShadow: `0 0 8px ${status === 'online' ? 'rgba(34,197,94,0.4)' : 'transparent'}`
-                                        }} />
+                                            // Default to red; turn green only when robot has recent stream data
+                                                background: (Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60 ? '#22C55E' : '#DC2626',
+                                                boxShadow: ((Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60) ? '0 0 8px rgba(34,197,94,0.32)' : 'transparent'
+                                        }} title={robot.lastUpdate ? `Last stream: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent stream data'} />
                                     </div>
 
                                     <div>
@@ -531,7 +555,7 @@ function Settings() {
                         style={{
                             width: '100%',
                             padding: '14px 24px',
-                            background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+                            background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
                             color: 'white',
                             border: 'none',
                             borderRadius: '50px',

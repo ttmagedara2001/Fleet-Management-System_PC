@@ -33,7 +33,7 @@ function LoadingScreen({ message }) {
           width: '80px',
           height: '80px',
           margin: '0 auto 24px',
-          background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+          background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
           borderRadius: '20px',
           display: 'flex',
           alignItems: 'center',
@@ -160,7 +160,7 @@ function ErrorScreen({ error, onRetry }) {
           style={{
             width: '100%',
             padding: '16px 24px',
-            background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)',
+            background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
             color: 'white',
             border: 'none',
             borderRadius: '50px',

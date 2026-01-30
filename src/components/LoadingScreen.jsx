@@ -2,8 +2,8 @@ import React from 'react';
 
 function LoadingScreen({ message = 'Loading...', stage = 'init' }) {
     const stages = {
-        init: { progress: 10, color: 'bg-purple-500' },
-        auth: { progress: 40, color: 'bg-purple-500' },
+        init: { progress: 10, color: 'bg-primary-600' },
+        auth: { progress: 40, color: 'bg-primary-600' },
         stomp: { progress: 70, color: 'bg-green-500' },
         ready: { progress: 100, color: 'bg-green-500' }
     };
@@ -77,7 +77,7 @@ function StageIndicator({ label, active, complete }) {
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${complete
                     ? 'bg-green-500 text-white'
                     : active
-                        ? 'bg-purple-500 text-white animate-pulse'
+                        ? 'bg-primary-600 text-white animate-pulse'
                         : 'bg-gray-200 text-gray-500'
                 }`}>
                 {complete ? '✓' : active ? '...' : '○'}

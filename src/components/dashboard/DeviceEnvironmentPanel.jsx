@@ -14,7 +14,7 @@ import { useDevice } from '../../contexts/DeviceContext';
 function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }) {
     const getStatusColor = () => {
         switch (status) {
-            case 'warning': return 'text-amber-500 bg-amber-50 border-amber-200';
+            case 'warning': return 'text-primary-500 bg-primary-50 border-primary-200';
             case 'critical': return 'text-red-500 bg-red-50 border-red-200';
             default: return 'text-green-500 bg-green-50 border-green-200';
         }
@@ -22,15 +22,15 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
 
     const getIconBg = () => {
         switch (status) {
-            case 'warning': return 'bg-amber-100 text-amber-600';
+            case 'warning': return 'bg-primary-100 text-primary-600';
             case 'critical': return 'bg-red-100 text-red-600';
-            default: return 'bg-purple-100 text-purple-600';
+            default: return 'bg-primary-100 text-primary-600';
         }
     };
 
     const getValueTextColor = () => {
         switch (status) {
-            case 'warning': return 'text-amber-600';
+            case 'warning': return 'text-primary-600';
             case 'critical': return 'text-red-600';
             default: return 'text-green-600';
         }
@@ -38,7 +38,7 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
 
     const getValueColorStyle = () => {
         switch (status) {
-            case 'warning': return { color: '#D97706' }; // amber-600
+            case 'warning': return { color: '#7C3AED' }; // primary purple
             case 'critical': return { color: '#DC2626' }; // red-600
             default: return { color: '#16A34A' }; // green-600
         }
@@ -100,16 +100,18 @@ function DeviceEnvironmentPanel() {
     const state = currentDeviceData?.state || {};
 
     const getTemperatureStatus = (temp) => {
-        if (!temp) return 'normal';
-        if (temp > 28) return 'critical';
-        if (temp > 25) return 'warning';
+        const thresholds = getThresholdsLocal();
+        if (temp == null) return 'normal';
+        if (temp > thresholds.temperature.critical) return 'critical';
+        if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) return 'warning';
         return 'normal';
     };
 
     const getHumidityStatus = (hum) => {
-        if (!hum) return 'normal';
-        if (hum > 60 || hum < 30) return 'critical';
-        if (hum > 55 || hum < 35) return 'warning';
+        const thresholds = getThresholdsLocal();
+        if (hum == null) return 'normal';
+        if (hum > thresholds.humidity.critical) return 'critical';
+        if (hum > thresholds.humidity.max || hum < thresholds.humidity.min) return 'warning';
         return 'normal';
     };
 
@@ -121,11 +123,34 @@ function DeviceEnvironmentPanel() {
     };
 
     const getPressureStatus = (p) => {
-        if (!p) return 'normal';
-        if (p < 980 || p > 1050) return 'critical';
-        if (p < 990 || p > 1040) return 'warning';
+        const thresholds = getThresholdsLocal();
+        if (p == null) return 'normal';
+        if (p < thresholds.pressure.min || p > (thresholds.pressure.max || 1050)) return 'critical';
+        if (p < (thresholds.pressure.min + 10) || p > (thresholds.pressure.max - 10)) return 'warning';
         return 'normal';
     };
+
+    // Read thresholds from localStorage saved settings or fallback to defaults
+    function getThresholdsLocal() {
+        try {
+            const saved = localStorage.getItem('fabrix_settings');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return parsed.thresholds || {
+                    temperature: { min: 18, max: 28, critical: 32 },
+                    humidity: { min: 30, max: 60, critical: 75 },
+                    pressure: { min: 980, max: 1040 }
+                };
+            }
+        } catch (e) {
+            // ignore and fall through
+        }
+        return {
+            temperature: { min: 18, max: 28, critical: 32 },
+            humidity: { min: 30, max: 60, critical: 75 },
+            pressure: { min: 980, max: 1040 }
+        };
+    }
 
     return (
         <div className="space-y-6">
