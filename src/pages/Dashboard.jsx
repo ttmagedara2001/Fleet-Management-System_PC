@@ -17,6 +17,8 @@ import { toggleAC, setAirPurifier } from '../services/api';
 function FabMap() {
     const { currentRobots } = useDevice();
     const [selectedRobot, setSelectedRobot] = useState(null);
+    const [clickedCoords, setClickedCoords] = useState(null); // { lat, lng, x, y }
+    const mapRef = React.useRef(null);
 
     const robots = Object.values(currentRobots || {});
 
@@ -57,6 +59,59 @@ function FabMap() {
         return { xPercent: x, yPercent: y };
     };
 
+    // Convert map click position to GPS coordinates
+    const percentToGps = (xPercent, yPercent) => {
+        const { minLat, maxLat, minLng, maxLng } = FACILITY_BOUNDS;
+
+        // X percent to longitude (5% -> minLng, 95% -> maxLng)
+        const xRatio = (xPercent - 5) / 90;
+        const lng = minLng + xRatio * (maxLng - minLng);
+
+        // Y percent to latitude (5% -> maxLat, 95% -> minLat, inverted)
+        const yRatio = (yPercent - 5) / 90;
+        const lat = maxLat - yRatio * (maxLat - minLat);
+
+        return { lat, lng };
+    };
+
+    // Handle map click to show coordinates
+    const handleMapClick = (e) => {
+        if (!mapRef.current) return;
+
+        const rect = mapRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Convert to percentages
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+
+        // Convert to GPS
+        const { lat, lng } = percentToGps(xPercent, yPercent);
+
+        setClickedCoords({
+            lat: lat,
+            lng: lng,
+            xPercent: xPercent,
+            yPercent: yPercent,
+            screenX: x,
+            screenY: y
+        });
+
+        // Clear selected robot when clicking on map
+        setSelectedRobot(null);
+    };
+
+    // Copy coordinates to clipboard
+    const copyToClipboard = () => {
+        if (clickedCoords) {
+            const text = `${clickedCoords.lat.toFixed(6)}, ${clickedCoords.lng.toFixed(6)}`;
+            navigator.clipboard.writeText(text).then(() => {
+                console.log('[Map] 📋 Coordinates copied:', text);
+            });
+        }
+    };
+
     const getStatusColor = (robot) => {
         // Prefer computed severity when available
         const sev = robot?.severity;
@@ -89,7 +144,12 @@ function FabMap() {
 
     return (
         <div className="fab-map-container">
-            <div className="fab-map">
+            <div
+                className="fab-map"
+                ref={mapRef}
+                onClick={handleMapClick}
+                style={{ cursor: 'crosshair' }}
+            >
                 {/* Zones */}
                 {zones.map(zone => (
                     <div
@@ -101,10 +161,101 @@ function FabMap() {
                             width: zone.width,
                             height: zone.height,
                         }}
+                        onClick={(e) => e.stopPropagation()} // Don't trigger map click
                     >
                         {zone.name}
                     </div>
                 ))}
+
+                {/* Clicked Position Marker & Tooltip */}
+                {clickedCoords && (
+                    <>
+                        {/* Position marker */}
+                        <div
+                            style={{
+                                position: 'absolute',
+                                left: `${clickedCoords.xPercent}%`,
+                                top: `${clickedCoords.yPercent}%`,
+                                transform: 'translate(-50%, -50%)',
+                                width: '12px',
+                                height: '12px',
+                                background: '#7C3AED',
+                                border: '2px solid white',
+                                borderRadius: '50%',
+                                boxShadow: '0 2px 8px rgba(124, 58, 237, 0.5)',
+                                zIndex: 15,
+                                pointerEvents: 'none'
+                            }}
+                        />
+                        {/* Coordinates tooltip */}
+                        <div
+                            style={{
+                                position: 'absolute',
+                                left: `${Math.min(clickedCoords.xPercent, 75)}%`,
+                                top: `${clickedCoords.yPercent < 20 ? clickedCoords.yPercent + 5 : clickedCoords.yPercent - 15}%`,
+                                background: 'white',
+                                borderRadius: '10px',
+                                padding: '10px 14px',
+                                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
+                                border: '1px solid #E5E7EB',
+                                zIndex: 25,
+                                minWidth: '180px'
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: '700', color: '#7C3AED', textTransform: 'uppercase' }}>
+                                    📍 Clicked Position
+                                </span>
+                                <button
+                                    onClick={() => setClickedCoords(null)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: '#9CA3AF',
+                                        padding: '0 4px'
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+                                <span style={{ color: '#6B7280' }}>Latitude:</span>
+                                <span style={{ fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>
+                                    {clickedCoords.lat.toFixed(6)}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px' }}>
+                                <span style={{ color: '#6B7280' }}>Longitude:</span>
+                                <span style={{ fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>
+                                    {clickedCoords.lng.toFixed(6)}
+                                </span>
+                            </div>
+                            <button
+                                onClick={copyToClipboard}
+                                style={{
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                📋 Copy Coordinates
+                            </button>
+                        </div>
+                    </>
+                )}
 
                 {/* Robot Markers */}
                 {robots.map((robot, index) => {
@@ -149,7 +300,11 @@ function FabMap() {
                             key={robot.id}
                             className="robot-marker"
                             style={{ left: `${x}%`, top: `${y}%` }}
-                            onClick={() => setSelectedRobot(selectedRobot?.id === robot.id ? null : robot)}
+                            onClick={(e) => {
+                                e.stopPropagation(); // Don't trigger map click
+                                setSelectedRobot(selectedRobot?.id === robot.id ? null : robot);
+                                setClickedCoords(null); // Close coords tooltip
+                            }}
                         >
                             {robot.id.replace('R-', 'R')}
                             <div
@@ -544,8 +699,8 @@ function RobotDetails() {
 
     const getTempClass = (temp) => {
         if (temp == null) return '';
-        if (temp > 32) return 'critical'; // Match DEFAULT_THRESHOLDS.temperature.critical
-        if (temp > 28) return 'warning';  // Match DEFAULT_THRESHOLDS.temperature.max
+        if (temp > 32) return 'critical';
+        if (temp > 28) return 'warning';
         return 'normal';
     };
 
@@ -554,6 +709,51 @@ function RobotDetails() {
         if (battery < 15) return { color: '#DC2626' };
         if (battery < 40) return { color: '#7C3AED' };
         return { color: '#16A34A' };
+    };
+
+    // Get task status badge styling
+    const getTaskStatusBadge = (task) => {
+        if (!task) return null;
+
+        const status = (task.status || '').toLowerCase();
+        let bgColor, textColor, label;
+
+        if (status === 'completed') {
+            bgColor = '#D1FAE5';
+            textColor = '#059669';
+            label = '✓ Completed';
+        } else if (status === 'in progress' || status === 'in_progress' || status === 'active' || status === 'moving') {
+            bgColor = '#DBEAFE';
+            textColor = '#2563EB';
+            label = '⟳ In Progress';
+        } else if (status === 'pending') {
+            bgColor = '#FEF3C7';
+            textColor = '#D97706';
+            label = '◷ Pending';
+        } else if (status === 'error' || status === 'failed') {
+            bgColor = '#FEE2E2';
+            textColor = '#DC2626';
+            label = '✕ Failed';
+        } else {
+            return null;
+        }
+
+        return (
+            <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '3px 8px',
+                borderRadius: '12px',
+                fontSize: '10px',
+                fontWeight: '700',
+                background: bgColor,
+                color: textColor,
+                marginTop: '4px'
+            }}>
+                {label}
+            </span>
+        );
     };
 
     if (robots.length === 0) {
@@ -591,6 +791,8 @@ function RobotDetails() {
                         <div className="robot-card-task">
                             TASK: {robot.task?.task || robot.task?.type || '--'}
                         </div>
+                        {/* Task Status Badge */}
+                        {getTaskStatusBadge(robot.task)}
                         <div className="robot-card-stats">
                             <div className={`robot-stat`}>
                                 <Battery size={14} />

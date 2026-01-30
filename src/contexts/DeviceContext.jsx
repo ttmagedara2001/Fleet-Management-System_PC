@@ -636,6 +636,70 @@ export function DeviceProvider({ children }) {
                 task: null
             };
 
+            const newLat = payload.lat ?? payload.latitude ?? (payload.location?.lat) ?? existingRobot.location?.lat;
+            const newLng = payload.lng ?? payload.longitude ?? (payload.location?.lng) ?? existingRobot.location?.lng;
+
+            // Check if robot has reached its destination (task completion logic)
+            const currentTask = existingRobot.task;
+            let updatedTask = currentTask;
+
+            if (currentTask && currentTask.status !== 'Completed' && currentTask.status !== 'completed') {
+                // Get destination coordinates from task
+                const destLat = currentTask.destination_lat ?? currentTask.dest_lat ?? currentTask.end_lat;
+                const destLng = currentTask.destination_lng ?? currentTask.dest_lng ?? currentTask.end_lng;
+
+                if (destLat != null && destLng != null && newLat != null && newLng != null) {
+                    // Calculate distance between current location and destination
+                    // Using simple Euclidean distance for GPS coordinates (approximate)
+                    const latDiff = Math.abs(newLat - destLat);
+                    const lngDiff = Math.abs(newLng - destLng);
+
+                    // Threshold: ~10 meters (approximately 0.0001 degrees)
+                    const ARRIVAL_THRESHOLD = 0.0001;
+
+                    const hasArrived = latDiff <= ARRIVAL_THRESHOLD && lngDiff <= ARRIVAL_THRESHOLD;
+
+                    if (hasArrived) {
+                        console.log(`[Device] 🎯 Robot ${robotId} has reached destination! Marking task as Completed.`);
+
+                        updatedTask = {
+                            ...currentTask,
+                            status: 'Completed',
+                            progress: 100,
+                            completedAt: Date.now()
+                        };
+
+                        // Fire off API update and notification (async, non-blocking)
+                        (async () => {
+                            try {
+                                // Send task completion status to backend
+                                await updateStateDetails(deviceId, `fleetMS/robots/${robotId}/task`, {
+                                    taskId: currentTask.taskId || currentTask.task_id,
+                                    status: 'Completed',
+                                    completedAt: new Date().toISOString(),
+                                    robotId: robotId
+                                });
+                                console.log(`[Device] ✅ Task completion sent to backend for ${robotId}`);
+
+                                // Notify Analysis page to refresh task history
+                                notifyTaskUpdate();
+                            } catch (err) {
+                                console.error(`[Device] ❌ Failed to send task completion for ${robotId}:`, err);
+                            }
+                        })();
+
+                        // Add success notification
+                        addAlert({
+                            type: 'info',
+                            deviceId,
+                            robotId,
+                            message: `✓ Robot ${robotId} completed task: ${currentTask.type || currentTask.task || 'Task'}`,
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+            }
+
             return {
                 ...prev,
                 [deviceId]: {
@@ -643,10 +707,11 @@ export function DeviceProvider({ children }) {
                     [robotId]: {
                         ...existingRobot,
                         location: {
-                            lat: payload.lat ?? payload.latitude ?? (payload.location?.lat) ?? existingRobot.location?.lat,
-                            lng: payload.lng ?? payload.longitude ?? (payload.location?.lng) ?? existingRobot.location?.lng,
+                            lat: newLat,
+                            lng: newLng,
                             z: payload.z ?? payload.altitude ?? existingRobot.location?.z
                         },
+                        task: updatedTask,
                         status: payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status,
                         heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
                         lastUpdate: Date.now()
@@ -657,7 +722,7 @@ export function DeviceProvider({ children }) {
 
         // Append location to robot history (keep simple lat,lng object)
         try { addRobotHistory(deviceId, robotId, 'location', { lat: payload.lat ?? payload.latitude ?? payload.location?.lat, lng: payload.lng ?? payload.longitude ?? payload.location?.lng }); } catch (e) { /* ignore */ }
-    }, []);
+    }, [addAlert, addRobotHistory, notifyTaskUpdate]);
 
     // Handle robot temperature updates
     // Handle robot temperature updates

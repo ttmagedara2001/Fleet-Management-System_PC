@@ -570,7 +570,7 @@ function Settings() {
                                             </div>
                                         ))}
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                                    <div style={{ display: 'flex', gap: '0', marginTop: 8 }}>
                                         <button
                                             onClick={async () => {
                                                 // Save settings for this robot only
@@ -624,9 +624,9 @@ function Settings() {
                                                     setTimeout(() => setRobotSaveMessage(null), 3500);
                                                 }
                                             }}
-                                            style={{ padding: '8px 12px', background: '#7C3AED', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                                            style={{ flex: 1, padding: '10px 12px', background: '#7C3AED', color: '#fff', border: 'none', borderRadius: '8px 0 0 8px', cursor: 'pointer', fontWeight: 700 }}
                                         >
-                                            Save
+                                            Assign
                                         </button>
                                         <button
                                             onClick={() => {
@@ -637,7 +637,7 @@ function Settings() {
                                                 setRobotSaveMessage({ type: 'success', text: `Cleared settings for ${robotId}` });
                                                 setTimeout(() => setRobotSaveMessage(null), 2000);
                                             }}
-                                            style={{ padding: '8px 12px', background: '#F3F4F6', color: '#111827', border: '1px solid #E5E7EB', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                                            style={{ flex: 1, padding: '10px 12px', background: '#F3F4F6', color: '#111827', border: '1px solid #E5E7EB', borderRadius: '0 8px 8px 0', cursor: 'pointer', fontWeight: 700 }}
                                         >
                                             Clear
                                         </button>
