@@ -12,6 +12,7 @@ import api, {
   getStreamData,
   getStateDetails,
   updateState,
+  updateStateDetails,
 } from "../services/api";
 
 export function useApi() {
@@ -34,7 +35,7 @@ export function useApi() {
       });
 
       try {
-        const response = await api.post("/get-stream-data/device", {
+        const response = await api.post("/user/get-stream-data/device", {
           deviceId,
           startTime,
           endTime,
@@ -115,7 +116,7 @@ export function useApi() {
     console.log("[API Hook] 📋 Fetching topic state details:", topic);
 
     try {
-      const response = await api.post("/get-state-details/device/topic", {
+      const response = await api.post("/user/get-state-details/device/topic", {
         deviceId,
         topic,
       });
@@ -215,13 +216,27 @@ export function useApi() {
       console.log("[API Hook] 🤖 Assigning task to robot:", robotId);
       console.log("[API Hook] 📋 Task:", task);
 
-      return updateDeviceState(deviceId, `robots/${robotId}/task`, {
+      // Build payload and include lat/lng if provided in the task object
+      const payload = {
         task_type: task.type,
         source: task.source,
         destination: task.destination,
         priority: task.priority || "NORMAL",
         timestamp: new Date().toISOString(),
-      });
+      };
+
+      if (task.source_lat !== undefined) payload.source_lat = task.source_lat;
+      if (task.source_lng !== undefined) payload.source_lng = task.source_lng;
+      if (task.destination_lat !== undefined)
+        payload.destination_lat = task.destination_lat;
+      if (task.destination_lng !== undefined)
+        payload.destination_lng = task.destination_lng;
+      // Include task identifier if provided
+      if (task.taskId !== undefined) payload.task_id = task.taskId;
+      if (task.task_id !== undefined) payload.task_id = task.task_id;
+
+      // Send task update as an explicit Update State Details HTTP request
+      return updateStateDetails(deviceId, `robots/${robotId}/task`, payload);
     },
     [updateDeviceState],
   );

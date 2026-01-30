@@ -62,9 +62,9 @@ function FabMap() {
         const sev = robot?.severity;
         if (sev) {
             // If either battery or temp is critical -> critical color
-                if (sev.battery === 'critical' || sev.temp === 'critical') return '#DC2626';
-                if (sev.battery === 'warning' || sev.temp === 'warning') return '#22C55E';
-                return '#22C55E';
+            if (sev.battery === 'critical' || sev.temp === 'critical') return '#DC2626';
+            if (sev.battery === 'warning' || sev.temp === 'warning') return '#22C55E';
+            return '#22C55E';
         }
         const state = robot?.status?.state?.toUpperCase();
         if (state === 'ERROR' || state === 'STOPPED') return '#EF4444';
@@ -107,7 +107,7 @@ function FabMap() {
                 ))}
 
                 {/* Robot Markers */}
-                    {robots.map((robot, index) => {
+                {robots.map((robot, index) => {
                     // Check if robot has valid location data
                     const hasLocation = robot.location &&
                         robot.location.lat !== null &&
@@ -206,7 +206,7 @@ function FabMap() {
                             <span className="label">CURRENT TASK:</span>
                             <span className="value">{selectedRobot.task?.type || 'None'}</span>
                         </div>
-                                {selectedRobot.task?.progress != null && (
+                        {selectedRobot.task?.progress != null && (
                             <div className="robot-tooltip-row">
                                 <span className="label">PROGRESS:</span>
                                 <span className="value" style={getProgressColorStyle(selectedRobot.task.progress)}>{selectedRobot.task.progress}%</span>
@@ -620,26 +620,84 @@ function Dashboard() {
         window.addEventListener('resize', update);
         return () => window.removeEventListener('resize', update);
     }, []);
+
     return (
         <div className="dashboard-content">
-            <div className="dashboard-grid">
-                {/* Left Column - Map */}
-                <div className="map-column">
-                    {!isMobile && <FabMap />}
-                </div>
+            {/* Mobile Layout - Vertical stacking */}
+            {isMobile ? (
+                <>
+                    {/* Status Cards First on Mobile */}
+                    <div className="mobile-status-section">
+                        <ManualModeNotice />
+                        <StatusCard />
+                        <ControlToggles />
+                    </div>
 
-                {/* Right Column - Status & Alerts */}
-                <div className="side-column">
-                    <ManualModeNotice />
-                    <StatusCard />
+                    {/* Map - Compact on Mobile */}
+                    <div className="mobile-map-section">
+                        <FabMap />
+                    </div>
+
+                    {/* Alerts */}
                     <AlertsCard />
-                    <ControlToggles />
-                </div>
-            </div>
 
-            <div className="bottom-section">
-                <RobotDetails />
-            </div>
+                    {/* Robot Details */}
+                    <div className="bottom-section">
+                        <RobotDetails />
+                    </div>
+                </>
+            ) : (
+                /* Desktop Layout - Grid */
+                <>
+                    <div className="dashboard-grid">
+                        {/* Left Column - Map */}
+                        <div className="map-column">
+                            <FabMap />
+                        </div>
+
+                        {/* Right Column - Status & Alerts */}
+                        <div className="side-column">
+                            <ManualModeNotice />
+                            <StatusCard />
+                            <AlertsCard />
+                            <ControlToggles />
+                        </div>
+                    </div>
+
+                    <div className="bottom-section">
+                        <RobotDetails />
+                    </div>
+                </>
+            )}
+
+            {/* Mobile-specific styles */}
+            <style>{`
+                .mobile-status-section {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    margin-bottom: 12px;
+                }
+
+                .mobile-map-section {
+                    margin-bottom: 12px;
+                }
+
+                .mobile-map-section .fab-map-container {
+                    border-radius: 12px;
+                    overflow: hidden;
+                }
+
+                .mobile-map-section .fab-map {
+                    height: 220px;
+                }
+
+                @media (max-width: 480px) {
+                    .mobile-map-section .fab-map {
+                        height: 180px;
+                    }
+                }
+            `}</style>
         </div>
     );
 }

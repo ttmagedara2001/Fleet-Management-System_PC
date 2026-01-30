@@ -129,8 +129,18 @@ export function DeviceProvider({ children }) {
         return rh;
     });
 
-        // Throttle timestamps for automatic control actions per device
-        const autoActionTimestamps = useRef({});
+    // Task update version counter - increments when a task is updated via API
+    // Components can watch this to trigger refreshes
+    const [taskUpdateVersion, setTaskUpdateVersion] = useState(0);
+
+    // Function to notify that a task was updated
+    const notifyTaskUpdate = useCallback(() => {
+        setTaskUpdateVersion(v => v + 1);
+        console.log('[Device] 📢 Task update notification triggered');
+    }, []);
+
+    // Throttle timestamps for automatic control actions per device
+    const autoActionTimestamps = useRef({});
 
 
 
@@ -1257,7 +1267,11 @@ export function DeviceProvider({ children }) {
         // Robot management
         registerRobot,
         refreshDeviceState,
-        updateRobotTaskLocal // Exposed helper
+        updateRobotTaskLocal, // Exposed helper
+
+        // Task update notification
+        taskUpdateVersion,
+        notifyTaskUpdate
     };
 
     return (

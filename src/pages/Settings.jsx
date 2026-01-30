@@ -54,10 +54,27 @@ const saveSettingsToStorage = (settings) => {
 const TASK_OPTIONS = ['Select Task', 'MOVE_FOUP', 'PICKUP', 'DELIVERY', 'RETURN_HOME', 'CHARGE'];
 const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay', 'Storage', 'Maintenance'];
 
+// Map human-friendly location names to approximate GPS coordinates for payloads.
+// Update these values to match your facility's real coordinates.
+const LOCATION_COORDS = {
+    'Cleanroom A': { lat: 37.4222, lng: -122.0846 },
+    'Cleanroom B': { lat: 37.4226, lng: -122.0838 },
+    'Loading Bay': { lat: 37.4218, lng: -122.0849 },
+    'Storage': { lat: 37.4219, lng: -122.0835 },
+    'Maintenance': { lat: 37.4216, lng: -122.0832 }
+};
+
+const getLocationCoordinates = (name) => {
+    if (!name) return null;
+    return LOCATION_COORDS[name] || null;
+};
+
+const generateTaskId = () => `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
 function Settings() {
     // 1. Context Access
     // Ensure selectedDeviceId is available from context for API calls
-    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState, isConnected } = useDevice();
+    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState, isConnected, notifyTaskUpdate } = useDevice();
 
     // 2. Local State
     const [settings, setSettings] = useState(loadSettings());
@@ -211,11 +228,24 @@ function Settings() {
                 const topic = `fleetMS/robots/${robotId}/task`;
 
                 // Payload structure
+                const srcCoords = getLocationCoordinates(config.source);
+                const dstCoords = getLocationCoordinates(config.destination);
+
+                const taskId = config.taskId || generateTaskId();
+
                 const payload = {
-                    "robotId": robotId,
-                    "task": config.task,
-                    "initiate location": config.source || "Unknown",
-                    "destination": config.destination || "Unknown"
+                    robotId: robotId,
+                    task: config.task,
+                    'initiate location': config.source || 'Unknown',
+                    destination: config.destination || 'Unknown',
+                    // Include generated and canonical task id
+                    taskId,
+                    task_id: taskId,
+                    // Include lat/lng when available so downstream systems can route precisely
+                    source_lat: srcCoords?.lat ?? null,
+                    source_lng: srcCoords?.lng ?? null,
+                    destination_lat: dstCoords?.lat ?? null,
+                    destination_lng: dstCoords?.lng ?? null
                 };
 
                 // Optimistic update in context
@@ -224,12 +254,16 @@ function Settings() {
                 }
 
                 console.log(`[Settings] 🚀 Sending task update for ${robotId}:`, payload);
-                
+
                 // Call API Service
                 return updateStateDetails(selectedDeviceId, topic, payload);
             });
 
             await Promise.all(updates);
+
+            // Notify other components (like Analysis) that tasks were updated
+            if (notifyTaskUpdate) notifyTaskUpdate();
+
             setRobotSaveMessage({ type: 'success', text: 'Robot fleet settings saved & synced!' });
         } catch (error) {
             console.error('[Settings] ❌ Failed to sync robot settings:', error);
@@ -472,8 +506,8 @@ function Settings() {
                                             height: '10px',
                                             borderRadius: '50%',
                                             // Default to red; turn green only when robot has recent stream data
-                                                background: (Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60 ? '#22C55E' : '#DC2626',
-                                                boxShadow: ((Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60) ? '0 0 8px rgba(34,197,94,0.32)' : 'transparent'
+                                            background: (Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60 ? '#22C55E' : '#DC2626',
+                                            boxShadow: ((Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60) ? '0 0 8px rgba(34,197,94,0.32)' : 'transparent'
                                         }} title={robot.lastUpdate ? `Last stream: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent stream data'} />
                                     </div>
 
@@ -536,38 +570,91 @@ function Settings() {
                                             </div>
                                         ))}
                                     </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                                        <button
+                                            onClick={async () => {
+                                                // Save settings for this robot only
+                                                const config = settings.robotSettings?.[robotId] || {};
+                                                if (!config || !config.task) {
+                                                    setRobotSaveMessage({ type: 'error', text: `No task selected for ${robotId}` });
+                                                    setTimeout(() => setRobotSaveMessage(null), 3000);
+                                                    return;
+                                                }
+
+                                                if (!selectedDeviceId) {
+                                                    setRobotSaveMessage({ type: 'error', text: 'No device selected for sync.' });
+                                                    setTimeout(() => setRobotSaveMessage(null), 3000);
+                                                    return;
+                                                }
+
+                                                try {
+                                                    const srcCoords = getLocationCoordinates(config.source);
+                                                    const dstCoords = getLocationCoordinates(config.destination);
+                                                    const taskId = config.taskId || generateTaskId();
+
+                                                    const payload = {
+                                                        robotId: robotId,
+                                                        task: config.task,
+                                                        'initiate location': config.source || 'Unknown',
+                                                        destination: config.destination || 'Unknown',
+                                                        taskId,
+                                                        source_lat: srcCoords?.lat ?? null,
+                                                        source_lng: srcCoords?.lng ?? null,
+                                                        destination_lat: dstCoords?.lat ?? null,
+                                                        destination_lng: dstCoords?.lng ?? null
+                                                    };
+
+                                                    // Optimistic local update
+                                                    if (updateRobotTaskLocal) updateRobotTaskLocal(robotId, payload);
+
+                                                    // Send to API
+                                                    await updateStateDetails(selectedDeviceId, `fleetMS/robots/${robotId}/task`, payload);
+
+                                                    // Save generated taskId back to settings for continuity
+                                                    updateRobotSetting(robotId, 'taskId', taskId);
+
+                                                    // Notify other components (like Analysis) that task was updated
+                                                    if (notifyTaskUpdate) notifyTaskUpdate();
+
+                                                    setRobotSaveMessage({ type: 'success', text: `Saved task for ${robotId}` });
+                                                } catch (err) {
+                                                    console.error('[Settings] ❌ Failed to save robot setting:', err);
+                                                    setRobotSaveMessage({ type: 'error', text: `Failed to sync ${robotId}` });
+                                                } finally {
+                                                    setTimeout(() => setRobotSaveMessage(null), 3500);
+                                                }
+                                            }}
+                                            style={{ padding: '8px 12px', background: '#7C3AED', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                // Clear robot-specific settings
+                                                updateRobotSetting(robotId, 'task', '');
+                                                updateRobotSetting(robotId, 'source', '');
+                                                updateRobotSetting(robotId, 'destination', '');
+                                                setRobotSaveMessage({ type: 'success', text: `Cleared settings for ${robotId}` });
+                                                setTimeout(() => setRobotSaveMessage(null), 2000);
+                                            }}
+                                            style={{ padding: '8px 12px', background: '#F3F4F6', color: '#111827', border: '1px solid #E5E7EB', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
                 )}
-
-                {/* Robot Fleet Save Message & Action */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Robot Fleet Save Message */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: 12 }}>
                     {robotSaveMessage && (
                         <div style={{ padding: '12px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>
                             <CheckCircle size={18} />
                             {robotSaveMessage.text}
                         </div>
                     )}
-                    <button
-                        onClick={handleSaveRobotSettings}
-                        style={{
-                            width: '100%',
-                            padding: '14px 24px',
-                            background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '50px',
-                            fontSize: '15px',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)',
-                            transition: 'transform 0.2s'
-                        }}
-                    >
-                        Save Robot Fleet Settings
-                    </button>
                 </div>
             </div>
         </div>

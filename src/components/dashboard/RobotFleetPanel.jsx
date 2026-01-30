@@ -117,18 +117,16 @@ function RobotCard({ robot }) {
         }
     };
 
-    // Connection indicator: green when recent websocket data, amber/red when severity present, red when stale/offline
-    const getConnectionColor = () => {
-        const now = Date.now();
+    // Determine whether the robot is actively receiving sensor/stream data (fresh lastUpdate)
+    const isReceivingData = (() => {
         const last = robot.lastUpdate || 0;
-        const ageMs = now - last;
+        if (!last) return false;
+        const ageMs = Date.now() - last;
+        return ageMs < 3000; // treat as receiving if updated within last 3s
+    })();
 
-        // Consider fresh only if updated within the last 3 seconds
-        const isFresh = ageMs < 3000;
-
-        // Only two colors: green when freshly updated, red otherwise
-        return isFresh ? '#16A34A' : '#DC2626';
-    };
+    // Connection indicator now depends ONLY on recent data receipt: green when receiving, red otherwise
+    const getConnectionColor = () => (isReceivingData ? '#16A34A' : '#DC2626');
 
     const getBatteryTextStyle = (status) => {
         if (!status) return { color: '#111827' };
@@ -147,8 +145,7 @@ function RobotCard({ robot }) {
                             {robot.id.split('-')[1] || robot.id.substring(0, 2)}
                         </span>
                     </div>
-                    {/* Connection bulb: green when recent websocket data; amber/red when severity or stale */}
-                    <div style={{ width: 10, height: 10, borderRadius: 6, background: getConnectionColor(), boxShadow: '0 0 6px rgba(0,0,0,0.09)' }} title={robot.lastUpdate ? `Last update: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent data'} />
+                    
                     <div>
                         <h4 className="font-semibold text-primary-700 text-sm">{robot.id}</h4>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -158,7 +155,28 @@ function RobotCard({ robot }) {
                     </div>
                 </div>
 
-                {/* Alert indicator */}
+                {/* Right-corner connection bulb: depends ONLY on stream data freshness */}
+                <div
+                    role="status"
+                    aria-label={isReceivingData ? 'Receiving data' : 'No recent data'}
+                    data-conn={isReceivingData ? 'true' : 'false'}
+                    style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 6,
+                        backgroundColor: getConnectionColor(),
+                        boxShadow: `0 0 6px ${getConnectionColor()}33`,
+                        border: '1px solid rgba(0,0,0,0.05)',
+                        flex: '0 0 auto'
+                    }}
+                    title={
+                        `Connectivity: ${isReceivingData ? 'Receiving' : 'Not receiving'} | ` +
+                        (robot.lastUpdate ? `Last update: ${new Date(robot.lastUpdate).toLocaleTimeString()} | ` : '') +
+                        `Temp status: ${tempStatus} | Battery: ${batteryStatus}`
+                    }
+                />
+
+                {/* Alert indicator (keeps showing when battery/temp not normal) */}
                 {(batteryStatus !== 'normal' || tempStatus !== 'normal') && (
                     <AlertTriangle
                         size={18}

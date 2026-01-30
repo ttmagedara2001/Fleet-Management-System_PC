@@ -28,26 +28,8 @@ import { useDevice } from '../contexts/DeviceContext';
 import { getDeviceStreamData, getTopicStreamData, getDeviceStateDetails, getTimeRange } from '../services/api';
 import { getRobotsForDevice } from '../config/robotRegistry';
 
-// Get task history from robots context
-const generateTaskHistory = (robots) => {
-    const tasks = [];
-    Object.values(robots || {}).forEach(robot => {
-        if (robot.task) {
-            tasks.push({
-                taskId: robot.task.taskId || `TSK-${robot.id}`,
-                taskName: robot.task.type || 'Unknown Task',
-                robotId: robot.id.replace('robot-', 'R-'),
-                status: robot.task.status || 'In Progress'
-            });
-        }
-    });
-
-    // If no real tasks, return empty array
-    return tasks;
-};
-
 function Analysis() {
-    const { selectedDeviceId, currentRobots } = useDevice();
+    const { selectedDeviceId, currentRobots, taskUpdateVersion } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -269,6 +251,12 @@ function Analysis() {
     const [selectedRobotForHistory, setSelectedRobotForHistory] = useState(deviceRobots[0]?.id || (deviceRobots[0] && deviceRobots[0].id) || null);
     const [robotChartData, setRobotChartData] = useState([]);
     const [activeRobotMetrics, setActiveRobotMetrics] = useState({ battery: true, temp: true });
+    // Task history state (last 24 hours)
+    const [taskHistory, setTaskHistory] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historySortKey, setHistorySortKey] = useState('timestamp'); // 'timestamp' or 'robotId'
+    const [historySortOrder, setHistorySortOrder] = useState('desc'); // 'asc' | 'desc'
+    const [historyFilterStatus, setHistoryFilterStatus] = useState('all');
 
     const fetchRobotHistory = useCallback(async () => {
         if (!selectedRobotForHistory) return;
@@ -315,6 +303,166 @@ function Analysis() {
     useEffect(() => {
         fetchRobotHistory();
     }, [fetchRobotHistory]);
+
+    // Progress chart removed per user request; mergedChartData omitted
+
+    // Fetch per-robot task history (last 24 hours) using /user/get-state-details/device
+    // This single API call retrieves all state details for the device, reducing multiple calls
+    const fetchTaskHistory = useCallback(async () => {
+        if (!selectedDeviceId || !deviceRobots?.length) return;
+        setHistoryLoading(true);
+        try {
+            const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+
+            // Single API call to get all device state details
+            const deviceState = await getDeviceStateDetails(selectedDeviceId).catch(() => ({ status: 'Failed', data: {} }));
+
+            const entries = [];
+
+            if (deviceState.status === 'Success' && deviceState.data) {
+                // Iterate through all state entries and extract robot task data
+                Object.entries(deviceState.data).forEach(([topicKey, value]) => {
+                    // Match robot task topics: fleetMS/robots/{robotId}/task
+                    if (topicKey.includes('fleetMS/robots/') && topicKey.includes('/task')) {
+                        try {
+                            const robotIdMatch = topicKey.match(/fleetMS\/robots\/([^/]+)\/task/);
+                            const robotId = robotIdMatch ? robotIdMatch[1] : null;
+
+                            if (!robotId) return;
+
+                            // Find robot info from registry
+                            const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
+
+                            // Parse the payload
+                            let payloadObj = null;
+                            if (typeof value === 'string') {
+                                payloadObj = JSON.parse(value || '{}');
+                            } else if (value && typeof value === 'object') {
+                                // Handle nested payload structure
+                                payloadObj = value.payload || value;
+                                // Unwrap if double-wrapped
+                                if (payloadObj && payloadObj.payload && typeof payloadObj.payload === 'object') {
+                                    payloadObj = payloadObj.payload;
+                                }
+                            }
+
+                            if (!payloadObj) return;
+
+                            // Extract timestamp
+                            const possibleTs = payloadObj.timestamp || value.timestamp || payloadObj.time || payloadObj.updatedAt || null;
+                            let ts = Date.now();
+                            if (possibleTs) {
+                                if (typeof possibleTs === 'number') {
+                                    ts = Math.floor(Number(possibleTs) * (possibleTs < 1e12 ? 1000 : 1));
+                                } else {
+                                    ts = new Date(possibleTs).getTime();
+                                }
+                            }
+
+                            // Skip entries older than 24 hours
+                            if (ts < cutoff) return;
+
+                            // Parse task fields
+                            const progress = Number(payloadObj.progress ?? payloadObj.percent ?? payloadObj.progress_pct ?? null);
+                            const startTs = payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start
+                                ? new Date(payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start).getTime()
+                                : null;
+                            const completionTs = payloadObj.completion_time || payloadObj.completed_at || payloadObj.completedAt || payloadObj.end
+                                ? new Date(payloadObj.completion_time || payloadObj.completed_at || payloadObj.completedAt || payloadObj.end).getTime()
+                                : null;
+                            const elapsedMs = payloadObj.elapsed_ms || payloadObj.elapsed || (completionTs && startTs ? (completionTs - startTs) : null);
+
+                            // Determine status - Mark as "Pending" if task has not started
+                            let status = payloadObj.status || payloadObj.state || null;
+                            if (!status) {
+                                if (completionTs) {
+                                    status = 'Completed';
+                                } else if (startTs) {
+                                    status = 'In Progress';
+                                } else {
+                                    // Task has not started - mark as Pending
+                                    status = 'Pending';
+                                }
+                            } else {
+                                // Normalize existing status - if status indicates not started, mark as Pending
+                                const statusLower = String(status).toLowerCase();
+                                if (statusLower === 'assigned' || statusLower === 'queued' || statusLower === 'waiting' || statusLower === 'scheduled') {
+                                    // Check if there's no start time - means it hasn't started
+                                    if (!startTs) {
+                                        status = 'Pending';
+                                    }
+                                }
+                            }
+
+                            // Populate geo fields if available - support multiple naming conventions
+                            // Source/Start location coordinates
+                            const srcLat = payloadObj.source_lat ?? payloadObj.src_lat ?? payloadObj.sourceLat
+                                ?? payloadObj.start_lat ?? payloadObj.startLat
+                                ?? payloadObj.origin?.lat ?? payloadObj.source?.lat ?? payloadObj.start?.lat;
+                            const srcLng = payloadObj.source_lng ?? payloadObj.src_lng ?? payloadObj.sourceLng
+                                ?? payloadObj.start_lng ?? payloadObj.startLng
+                                ?? payloadObj.origin?.lng ?? payloadObj.source?.lng ?? payloadObj.start?.lng;
+
+                            // Destination/End location coordinates
+                            const dstLat = payloadObj.destination_lat ?? payloadObj.dest_lat ?? payloadObj.destinationLat
+                                ?? payloadObj.end_lat ?? payloadObj.endLat
+                                ?? payloadObj.destination?.lat ?? payloadObj.end?.lat;
+                            const dstLng = payloadObj.destination_lng ?? payloadObj.dest_lng ?? payloadObj.destinationLng
+                                ?? payloadObj.end_lng ?? payloadObj.endLng
+                                ?? payloadObj.destination?.lng ?? payloadObj.end?.lng;
+
+                            // Extract priority if available
+                            const priority = payloadObj.priority || payloadObj.task_priority || 'Normal';
+
+                            // Extract location names if available
+                            const sourceLocationName = payloadObj['initiate location'] || payloadObj.source_name
+                                || payloadObj.sourceName || payloadObj.origin_name || payloadObj.start_name
+                                || (typeof payloadObj.source === 'string' ? payloadObj.source : null)
+                                || (typeof payloadObj.origin === 'string' ? payloadObj.origin : null);
+                            const destLocationName = payloadObj.destination_name || payloadObj.destinationName
+                                || payloadObj.dest_name || payloadObj.end_name
+                                || (typeof payloadObj.destination === 'string' ? payloadObj.destination : null);
+
+                            entries.push({
+                                robotId: payloadObj.robotId || payloadObj.robot || robotId,
+                                robotName: robotInfo.name || robotId,
+                                taskId: payloadObj.taskId || payloadObj.task_id || payloadObj.id || null,
+                                taskName: payloadObj.taskName || payloadObj.task_name || payloadObj.type || payloadObj.task || null,
+                                status: status,
+                                timestamp: ts,
+                                progress: Number.isFinite(Number(progress)) ? Number(progress) : (
+                                    status === 'Completed' ? 100 : (status === 'Pending' ? 0 : null)
+                                ),
+                                startTime: startTs,
+                                completionTime: completionTs,
+                                elapsedMs,
+                                priority,
+                                source: 'state',
+                                sourceLocation: sourceLocationName,
+                                destinationLocation: destLocationName,
+                                source_lat: srcLat,
+                                source_lng: srcLng,
+                                destination_lat: dstLat,
+                                destination_lng: dstLng,
+                                raw: payloadObj
+                            });
+                        } catch (e) {
+                            // Ignore parse errors per-record
+                        }
+                    }
+                });
+            }
+
+            // Sort entries by timestamp desc by default
+            const sorted = entries.sort((a, b) => b.timestamp - a.timestamp);
+            setTaskHistory(sorted);
+        } catch (err) {
+            console.error('[Analysis] ❌ Task history fetch failed', err);
+            setTaskHistory([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    }, [selectedDeviceId, deviceRobots]);
 
     // Fetch data from API
     const fetchData = useCallback(async () => {
@@ -382,18 +530,28 @@ function Analysis() {
     useEffect(() => {
         fetchData();
         fetchRobotData();
+        fetchTaskHistory();
         fetchRobotSensorData();
-    }, [fetchData, fetchRobotData, fetchRobotSensorData]);
+    }, [fetchData, fetchRobotData, fetchRobotSensorData, fetchTaskHistory]);
 
     // Auto-refresh every 30 seconds
     useEffect(() => {
         const intervalId = setInterval(() => {
             fetchData();
             fetchRobotData();
+            fetchTaskHistory();
             fetchRobotSensorData();
         }, 30000);
         return () => clearInterval(intervalId);
-    }, [fetchData, fetchRobotData, fetchRobotSensorData]);
+    }, [fetchData, fetchRobotData, fetchRobotSensorData, fetchTaskHistory]);
+
+    // Refresh task history when tasks are updated from Settings page
+    useEffect(() => {
+        if (taskUpdateVersion > 0) {
+            console.log('[Analysis] 🔄 Task update detected, refreshing task history...');
+            fetchTaskHistory();
+        }
+    }, [taskUpdateVersion, fetchTaskHistory]);
 
     const toggleMetric = (metric) => {
         setActiveMetrics(prev => ({
@@ -643,66 +801,109 @@ function Analysis() {
                 </div>
             </div>
 
-            {/* Robot Task History Table */}
+            {/* Robot Task History Table (last 24 hours) */}
             <div style={styles.tableCard}>
-                <h2 style={styles.tableTitle}>Fleet Task History</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={styles.tableTitle}>Fleet Task History (24h)</h2>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', paddingRight: 12 }}>
+                        <select style={styles.select} value={historyFilterStatus} onChange={(e) => setHistoryFilterStatus(e.target.value)}>
+                            <option value="all">All statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="started">Started</option>
+                            <option value="inprogress">In Progress</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                        <button style={styles.exportBtn} onClick={fetchTaskHistory} disabled={historyLoading} aria-label="Refresh task history">
+                            <RefreshCw size={14} />
+                        </button>
+                        <div style={{ fontSize: 13, color: '#6B7280' }}>{taskHistory.length} entries</div>
+                    </div>
+                </div>
+
                 <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
                     <table style={styles.table}>
                         <thead>
                             <tr>
-                                <th style={styles.th}>Robot ID</th>
+                                <th style={styles.th} onClick={() => { setHistorySortKey('timestamp'); setHistorySortOrder(historySortKey === 'timestamp' && historySortOrder === 'desc' ? 'asc' : 'desc'); }}>Time</th>
+                                <th style={styles.th} onClick={() => { setHistorySortKey('robotId'); setHistorySortOrder(historySortKey === 'robotId' && historySortOrder === 'desc' ? 'asc' : 'desc'); }}>Robot ID</th>
                                 <th style={styles.th}>Name</th>
+                                <th style={styles.th}>Task ID</th>
                                 <th style={styles.th}>Task</th>
                                 <th style={styles.th}>Status</th>
+                                <th style={styles.th}>Route</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {(() => {
-                                // Merge data sources for table
-                                const liveRobots = Object.values(currentRobots || {});
-                                const hasLive = liveRobots.length > 0 && liveRobots.some(r => r.status?.battery > 0);
+                            {historyLoading ? (
+                                <tr>
+                                    <td colSpan="7" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
+                                        <Loader2 size={18} /> Loading task history...
+                                    </td>
+                                </tr>
+                            ) : taskHistory.length === 0 ? (
+                                <tr>
+                                    <td colSpan="7" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
+                                        No task history in the last 24 hours
+                                    </td>
+                                </tr>
+                            ) : (
+                                (() => {
+                                    const filtered = taskHistory.filter(row => {
+                                        if (!historyFilterStatus || historyFilterStatus === 'all') return true;
+                                        const s = String(row.status || '').toLowerCase();
+                                        if (historyFilterStatus === 'pending') return s === 'pending';
+                                        if (historyFilterStatus === 'assigned') return s.includes('assign');
+                                        if (historyFilterStatus === 'started') return s.includes('start');
+                                        if (historyFilterStatus === 'inprogress') return s.includes('progress') || s.includes('in progress') || s.includes('in_progress');
+                                        if (historyFilterStatus === 'completed') return s.includes('complete') || s.includes('done');
+                                        return true;
+                                    });
 
-                                // Source to render
-                                const displayData = hasLive ? liveRobots : robotSensorData;
+                                    const sorted = [...filtered].sort((a, b) => {
+                                        if (historySortKey === 'robotId') {
+                                            const cmp = String(a.robotId).localeCompare(String(b.robotId));
+                                            return historySortOrder === 'asc' ? cmp : -cmp;
+                                        }
+                                        // default timestamp
+                                        const cmp = a.timestamp - b.timestamp;
+                                        return historySortOrder === 'asc' ? cmp : -cmp;
+                                    });
 
-                                if (displayData.length === 0) {
-                                    return (
-                                        <tr>
-                                            <td colSpan="4" style={{ ...styles.td, textAlign: 'center', padding: '40px' }}>
-                                                No fleet data available
-                                            </td>
-                                        </tr>
-                                    );
-                                }
+                                    return sorted.map((row, idx) => {
+                                        // Format route display - show location names or coordinates
+                                        const formatLocation = (name, lat, lng) => {
+                                            if (name) return name;
+                                            if (lat !== undefined && lng !== undefined && lat !== null && lng !== null) {
+                                                return `(${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)})`;
+                                            }
+                                            return null;
+                                        };
+                                        const srcDisplay = formatLocation(row.sourceLocation, row.source_lat, row.source_lng);
+                                        const dstDisplay = formatLocation(row.destinationLocation, row.destination_lat, row.destination_lng);
+                                        const routeDisplay = srcDisplay && dstDisplay
+                                            ? `${srcDisplay} → ${dstDisplay}`
+                                            : (srcDisplay || dstDisplay || '-');
 
-                                return displayData.map((robot, idx) => {
-                                    // Normalize fields
-                                    const id = robot.id || robot.robotId;
-                                    const name = robot.name || robot.robotName || id;
-                                    const task = robot.task?.task || robot.task?.type || robot.taskName || 'Idle';
-                                    const state = robot.status?.state ?? robot.status ?? 'Unknown';
-
-                                    // Determine effective status
-                                    const isOnline = Boolean(state && String(state).toUpperCase() !== 'UNKNOWN');
-
-                                    return (
-                                        <tr key={idx}>
-                                            <td style={styles.td}>{id}</td>
-                                            <td style={{ ...styles.td, fontWeight: '600', color: '#1F2937' }}>{name}</td>
-                                            <td style={styles.td}>{task}</td>
-                                            <td style={styles.td}>
-                                                <span style={{ ...styles.statusBadge, ...getStatusStyle(state) }}>
-                                                    {state === 'Unknown' && isOnline ? 'ONLINE' : state}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    );
-                                });
-                            })()}
+                                        return (
+                                            <tr key={`${row.robotId}-${row.timestamp}-${idx}`}>
+                                                <td style={styles.td}>{new Date(row.timestamp).toLocaleString()}</td>
+                                                <td style={styles.td}>{row.robotId}</td>
+                                                <td style={{ ...styles.td, fontWeight: '600', color: '#1F2937' }}>{row.robotName}</td>
+                                                <td style={styles.td}>{row.taskId || '-'}</td>
+                                                <td style={styles.td}>{row.taskName || '-'}</td>
+                                                <td style={styles.td}><span style={{ ...styles.statusBadge, ...getStatusStyle(row.status) }}>{row.status}</span></td>
+                                                <td style={{ ...styles.td, fontSize: '12px', color: '#6B7280', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={routeDisplay}>{routeDisplay}</td>
+                                            </tr>
+                                        );
+                                    });
+                                })()
+                            )}
                         </tbody>
                     </table>
                 </div>
             </div>
+            {/* Task Progress chart removed per user request */}
         </div>
     );
 }
