@@ -229,7 +229,7 @@ function FabMap() {
 
 // Status Card Component
 function StatusCard() {
-    const { currentDeviceData, selectedDeviceId, isConnected } = useDevice();
+    const { currentDeviceData, selectedDeviceId, isConnected, currentDevice } = useDevice();
 
     const env = currentDeviceData?.environment || {};
 
@@ -322,7 +322,7 @@ function StatusCard() {
     return (
         <div className="status-card">
             <div className="status-card-header">
-                <span className="status-card-title">{`{${selectedDeviceId}}`} STATUS</span>
+                <span className="status-card-title">{(currentDevice?.name || selectedDeviceId) + ' STATUS'}</span>
                 <span className={`status-badge ${isConnected ? 'online' : 'offline'}`}>
                     {isConnected ? 'ONLINE' : 'OFFLINE'}
                 </span>

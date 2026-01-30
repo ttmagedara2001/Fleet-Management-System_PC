@@ -164,7 +164,7 @@ function ZoneComponent({ zone }) {
 }
 
 function FabMap() {
-    const { currentRobots, selectedDeviceId } = useDevice();
+    const { currentRobots, selectedDeviceId, currentDeviceData } = useDevice();
     const [selectedRobotId, setSelectedRobotId] = useState(null);
     const [mapDimensions] = useState({ width: 750, height: 500 });
     const [isMobile, setIsMobile] = useState(false);
@@ -267,9 +267,54 @@ function FabMap() {
         );
     }
 
-    // Remove entire map UI on small/mobile screens
+    // Mobile compact view: show a lightweight overview + selectable robot list
     if (isMobile || (typeof window !== 'undefined' && window.innerWidth <= 768)) {
-        return null;
+        return (
+            <div className="card p-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-semibold text-gray-900">Fab Overview</h3>
+                        <p className="text-sm text-gray-500">{robots.length} robot{robots.length !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="text-xs text-gray-500">Mobile view</div>
+                </div>
+
+                <div className="mt-3 flex gap-2 overflow-x-auto py-1">
+                    {robots.map(r => {
+                        const fresh = Date.now() - (r.lastUpdate || 0) < 3000; // 3s freshness
+                        return (
+                            <button
+                                key={r.id}
+                                onClick={() => setSelectedRobotId(r.id === selectedRobotId ? null : r.id)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${r.id === selectedRobotId ? 'ring-2 ring-purple-300' : 'bg-white'}`}
+                            >
+                                <span style={{ width: 10, height: 10, borderRadius: 6, background: fresh ? '#16A34A' : '#DC2626' }} />
+                                <span className="text-sm font-semibold">{r.id.split('-')[1] || r.id.substring(0, 3)}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                    <MiniGrid robot={selectedRobot || robots[0]} />
+
+                    <div className="flex items-center justify-between text-sm text-gray-700">
+                        <div>
+                            <div className="text-xs text-gray-500">Ambient Temp</div>
+                            <div className="font-medium">{(currentDeviceData?.environment?.ambient_temp ?? currentDeviceData?.environment?.temperature ?? currentDeviceData?.environment?.temp) != null ? (currentDeviceData.environment.ambient_temp ?? currentDeviceData.environment.temperature ?? currentDeviceData.environment.temp) + '°C' : '--°C'}</div>
+                        </div>
+                        <div>
+                            <div className="text-xs text-gray-500">Humidity</div>
+                            <div className="font-medium">{(currentDeviceData?.environment?.ambient_hum ?? currentDeviceData?.environment?.humidity) != null ? (currentDeviceData.environment.ambient_hum ?? currentDeviceData.environment.humidity) + '%' : '--%'}</div>
+                        </div>
+                        <div>
+                            <div className="text-xs text-gray-500">Pressure</div>
+                            <div className="font-medium">{(currentDeviceData?.environment?.atmospheric_pressure ?? currentDeviceData?.environment?.pressure) != null ? (currentDeviceData.environment.atmospheric_pressure ?? currentDeviceData.environment.pressure) + ' hPa' : '--'}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     return (
