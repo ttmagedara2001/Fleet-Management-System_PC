@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { toggleAC, setAirPurifier } from '../services/api';
+import { TASK_PHASES, PHASE_LABELS, PHASE_COLORS, FACILITY_BOUNDS as SHARED_FACILITY_BOUNDS, gpsToPercent as sharedGpsToPercent, percentToGps as sharedPercentToGps } from '../utils/telemetryMath';
 
 // Fab Map Component
 function FabMap() {
@@ -33,47 +34,10 @@ function FabMap() {
         { id: 'parking', name: 'Reset Position (Ready)', left: '65%', top: '82%', width: '25%', height: '10%', type: 'reset' },
     ];
 
-    // Facility GPS bounds (example) - adjust to your site for accurate placement.
-    // These should be set to the rectangle that covers the whole facility map.
-    // Format: { minLat, maxLat, minLng, maxLng }
-    const FACILITY_BOUNDS = {
-        // Example coordinates (small area near 37.422, -122.084). Replace with real values.
-        minLat: 37.4215,
-        maxLat: 37.4230,
-        minLng: -122.0850,
-        maxLng: -122.0830
-    };
-
-    // Convert GPS lat/lng to map percentages. Returns { xPercent, yPercent } between ~5..95
-    const gpsToPercent = (lat, lng) => {
-        const { minLat, maxLat, minLng, maxLng } = FACILITY_BOUNDS;
-        // Clamp values
-        const clampedLat = Math.max(Math.min(lat, maxLat), minLat);
-        const clampedLng = Math.max(Math.min(lng, maxLng), minLng);
-
-        // X is longitude (west->east), Y is latitude (north->south so invert)
-        const xRatio = (clampedLng - minLng) / (maxLng - minLng || 1);
-        const yRatio = (maxLat - clampedLat) / (maxLat - minLat || 1); // invert lat so larger lat = top
-
-        const x = 5 + xRatio * 90; // map to 5%..95%
-        const y = 5 + yRatio * 90;
-        return { xPercent: x, yPercent: y };
-    };
-
-    // Convert map click position to GPS coordinates
-    const percentToGps = (xPercent, yPercent) => {
-        const { minLat, maxLat, minLng, maxLng } = FACILITY_BOUNDS;
-
-        // X percent to longitude (5% -> minLng, 95% -> maxLng)
-        const xRatio = (xPercent - 5) / 90;
-        const lng = minLng + xRatio * (maxLng - minLng);
-
-        // Y percent to latitude (5% -> maxLat, 95% -> minLat, inverted)
-        const yRatio = (yPercent - 5) / 90;
-        const lat = maxLat - yRatio * (maxLat - minLat);
-
-        return { lat, lng };
-    };
+    // Use shared facility bounds and GPS conversion from telemetryMath (single source of truth)
+    const FACILITY_BOUNDS = SHARED_FACILITY_BOUNDS;
+    const gpsToPercent = (lat, lng) => sharedGpsToPercent(lat, lng);
+    const percentToGps = (xPercent, yPercent) => sharedPercentToGps(xPercent, yPercent);
 
     // Handle map click to show coordinates
     const handleMapClick = (e) => {
@@ -275,12 +239,10 @@ function FabMap() {
                             const p = gpsToPercent(lat, lng);
                             x = p.xPercent;
                             y = p.yPercent;
-                            console.log(`[Map] 📍 ${robot.id} GPS lat:${lat}, lng:${lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
                         } else {
                             // Fallback: treat lat/lng as normalized 0..1 coordinates
                             x = 5 + (robot.location.lng * 90);  // 0 -> 5%, 1 -> 95%
                             y = 5 + (robot.location.lat * 90);  // 0 -> 5%, 1 -> 95%
-                            console.log(`[Map] 📍 ${robot.id} normalized lat:${robot.location.lat}, lng:${robot.location.lng} -> x:${x.toFixed(1)}%, y:${y.toFixed(1)}%`);
                         }
                     } else {
                         // Spread robots across different functional zones by default (fallback positions)
@@ -776,6 +738,40 @@ function RobotDetails() {
 
         if (!task) return null;
 
+        // Phase-based badge (new system)
+        const phase = task.phase;
+        if (phase && PHASE_LABELS[phase]) {
+            const colors = PHASE_COLORS[phase] || { bg: '#F3F4F6', color: '#6B7280' };
+            const progress = task.progress;
+
+            return (
+                <div style={{ marginTop: '4px' }}>
+                    <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        background: colors.bg,
+                        color: colors.color
+                    }}>
+                        {PHASE_LABELS[phase]}
+                    </span>
+                    {progress != null && phase !== TASK_PHASES.COMPLETED && phase !== TASK_PHASES.ASSIGNED && (
+                        <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div style={{ width: '60px', height: '4px', background: '#E5E7EB', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(progress, 100)}%`, height: '100%', background: colors.color, borderRadius: '2px', transition: 'width 0.5s ease' }} />
+                            </div>
+                            <span style={{ fontSize: '9px', fontWeight: '600', color: colors.color }}>{progress}%</span>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Legacy fallback (tasks without phase)
         const status = (task.status || task.state || '').toLowerCase();
         let bgColor, textColor, label;
 
@@ -888,13 +884,15 @@ function RobotDetails() {
                             <Bot size={32} />
                         </div>
                         <div className="robot-card-task">
-                            {robot.task?.status === 'Completed'
-                                ? <span style={{ color: '#059669' }}>✓ {robot.task.type || 'Task'} — Done</span>
-                                : robot.task
-                                    ? <>TASK: {robot.task.task || robot.task.type || '--'}</>
-                                    : robot.status?.state === 'READY'
-                                        ? <span style={{ color: '#047857' }}>Ready for Assignment</span>
-                                        : 'TASK: --'
+                            {robot.task?.phase === TASK_PHASES.COMPLETED
+                                ? <span style={{ color: '#059669' }}>✅ {robot.task.type || 'Task'} — Delivered</span>
+                                : robot.task?.phase
+                                    ? <>{PHASE_LABELS[robot.task.phase]?.split(' ').slice(1).join(' ') || robot.task.task || robot.task.type || '--'}</>
+                                    : robot.task
+                                        ? <>TASK: {robot.task.task || robot.task.type || '--'}</>
+                                        : robot.status?.state === 'READY'
+                                            ? <span style={{ color: '#047857' }}>Ready for Assignment</span>
+                                            : 'TASK: --'
                             }
                         </div>
                         {/* Task Status Badge */}

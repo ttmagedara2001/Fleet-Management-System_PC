@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { updateStateDetails } from '../services/api';
+import { ROOM_CENTERS, generateTaskId } from '../utils/telemetryMath';
 
 // Default thresholds
 const DEFAULT_SETTINGS = {
@@ -53,26 +54,16 @@ const saveSettingsToStorage = (settings) => {
     }
 };
 
-// Options
-const TASK_OPTIONS = ['Select Task', 'MOVE_FOUP', 'PICKUP', 'DELIVERY', 'RETURN_HOME', 'CHARGE'];
+// Options — single Deliver task type (no dropdown needed)
 const LOCATION_OPTIONS = ['Select', 'Cleanroom A', 'Cleanroom B', 'Loading Bay', 'Storage', 'Maintenance'];
 
-// Map human-friendly location names to approximate GPS coordinates for payloads.
-// Update these values to match your facility's real coordinates.
-const LOCATION_COORDS = {
-    'Cleanroom A': { lat: 37.4222, lng: -122.0846 },
-    'Cleanroom B': { lat: 37.4226, lng: -122.0838 },
-    'Loading Bay': { lat: 37.4218, lng: -122.0849 },
-    'Storage': { lat: 37.4219, lng: -122.0835 },
-    'Maintenance': { lat: 37.4216, lng: -122.0832 }
-};
+// Room center coordinates from telemetryMath.js (derived from FabMap SVG zone geometry)
+const LOCATION_COORDS = ROOM_CENTERS;
 
 const getLocationCoordinates = (name) => {
     if (!name) return null;
     return LOCATION_COORDS[name] || null;
 };
-
-const generateTaskId = () => `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 function Settings() {
     // 1. Context Access
@@ -234,28 +225,24 @@ function Settings() {
         try {
             // Send updates to API for each configured robot
             const updates = Object.entries(settings.robotSettings || {}).map(async ([robotId, config]) => {
-                // Only send if a task is selected
-                if (!config.task || config.task === 'Select Task') return;
+                // Only send if source and destination are selected
+                if (!config.source || config.source === 'Select' || !config.destination || config.destination === 'Select') return;
 
                 // Topic: fleetMS/robots/<RobotID>/task
-                // Note: According to docs, topic should be a suffix. 
-                // Adjusting based on your snippet's format.
                 const topic = `fleetMS/robots/${robotId}/task`;
 
                 // Payload structure
                 const srcCoords = getLocationCoordinates(config.source);
                 const dstCoords = getLocationCoordinates(config.destination);
 
-                const taskId = config.taskId || generateTaskId();
+                const taskId = generateTaskId();
 
                 const payload = {
                     robotId: robotId,
-                    task: config.task,
+                    task_type: 'Deliver',
+                    task_id: taskId,
                     'initiate location': config.source || 'Unknown',
                     destination: config.destination || 'Unknown',
-                    // Include generated and canonical task id
-                    taskId,
-                    task_id: taskId,
                     // Include lat/lng when available so downstream systems can route precisely
                     source_lat: srcCoords?.lat ?? null,
                     source_lng: srcCoords?.lng ?? null,
@@ -720,28 +707,32 @@ function Settings() {
                                             marginBottom: '4px'
                                         }}>
                                             <div style={{ fontSize: '11px', color: '#92400E', fontWeight: '600' }}>
-                                                Current: {activeTask.task || activeTask.type || 'Task in progress'}
+                                                Delivering — {activeTask.task_id || activeTask.taskId || 'In Progress'}
                                             </div>
                                             {activeTask.destination && (
                                                 <div style={{ fontSize: '10px', color: '#B45309', marginTop: '2px' }}>
-                                                    → {typeof activeTask.destination === 'string' ? activeTask.destination : 'Destination'}
+                                                    {activeTask['initiate location'] || activeTask.source || '?'} → {typeof activeTask.destination === 'string' ? activeTask.destination : 'Destination'}
                                                 </div>
                                             )}
                                         </div>
                                     )}
 
                                     <div>
-                                        <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Mission Task</label>
-                                        <div style={{ position: 'relative' }}>
-                                            <select
-                                                value={robotSettings.task || ''}
-                                                onChange={(e) => updateRobotSetting(robotId, 'task', e.target.value)}
-                                                disabled={isBusy}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
-                                            >
-                                                {TASK_OPTIONS.map(opt => <option key={opt} value={opt === 'Select Task' ? '' : opt}>{opt}</option>)}
-                                            </select>
-                                            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#9CA3AF' }} />
+                                        <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Task Type</label>
+                                        <div style={{
+                                            width: '100%',
+                                            padding: '8px 12px',
+                                            background: '#F0FDF4',
+                                            border: '1px solid #BBF7D0',
+                                            borderRadius: '8px',
+                                            fontSize: '12px',
+                                            fontWeight: '700',
+                                            color: '#059669',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}>
+                                            📦 Deliver
                                         </div>
                                     </div>
 
@@ -790,10 +781,16 @@ function Settings() {
                                                     return;
                                                 }
 
-                                                // Save settings for this robot only
                                                 const config = settings.robotSettings?.[robotId] || {};
-                                                if (!config || !config.task) {
-                                                    setRobotSaveMessage({ type: 'error', text: `No task selected for ${robotId}` });
+
+                                                // Require source and destination for a Deliver task
+                                                if (!config.source || config.source === 'Select') {
+                                                    setRobotSaveMessage({ type: 'error', text: `Select a source for ${displayId}` });
+                                                    setTimeout(() => setRobotSaveMessage(null), 3000);
+                                                    return;
+                                                }
+                                                if (!config.destination || config.destination === 'Select') {
+                                                    setRobotSaveMessage({ type: 'error', text: `Select a destination for ${displayId}` });
                                                     setTimeout(() => setRobotSaveMessage(null), 3000);
                                                     return;
                                                 }
@@ -807,15 +804,15 @@ function Settings() {
                                                 try {
                                                     const srcCoords = getLocationCoordinates(config.source);
                                                     const dstCoords = getLocationCoordinates(config.destination);
-                                                    const taskId = config.taskId || generateTaskId();
+                                                    const taskId = generateTaskId();
 
                                                     const payload = {
                                                         robotId: robotId,
-                                                        task: config.task,
-                                                        status: 'Assigned', // Mark as assigned/pending
+                                                        task_type: 'Deliver',
+                                                        task_id: taskId,
+                                                        status: 'Assigned',
                                                         'initiate location': config.source || 'Unknown',
                                                         destination: config.destination || 'Unknown',
-                                                        taskId,
                                                         source_lat: srcCoords?.lat ?? null,
                                                         source_lng: srcCoords?.lng ?? null,
                                                         destination_lat: dstCoords?.lat ?? null,
@@ -827,9 +824,6 @@ function Settings() {
 
                                                     // Send to API
                                                     await updateStateDetails(selectedDeviceId, `fleetMS/robots/${robotId}/task`, payload);
-
-                                                    // Save generated taskId back to settings for continuity
-                                                    updateRobotSetting(robotId, 'taskId', taskId);
 
                                                     // Notify other components (like Analysis) that task was updated
                                                     if (notifyTaskUpdate) notifyTaskUpdate();
@@ -860,10 +854,9 @@ function Settings() {
                                         <button
                                             onClick={() => {
                                                 // Clear robot-specific settings
-                                                updateRobotSetting(robotId, 'task', '');
                                                 updateRobotSetting(robotId, 'source', '');
                                                 updateRobotSetting(robotId, 'destination', '');
-                                                setRobotSaveMessage({ type: 'success', text: `Cleared settings for ${robotId}` });
+                                                setRobotSaveMessage({ type: 'success', text: `Cleared settings for ${displayId}` });
                                                 setTimeout(() => setRobotSaveMessage(null), 2000);
                                             }}
                                             style={{ flex: 1, padding: '10px 12px', background: '#F3F4F6', color: '#111827', border: '1px solid #E5E7EB', borderRadius: '0 8px 8px 0', cursor: 'pointer', fontWeight: 700 }}

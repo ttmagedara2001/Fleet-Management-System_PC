@@ -1,7 +1,9 @@
 /**
- * Simple Authentication Context
+ * Authentication Context (Cookie-Based)
  * 
- * Auto-login on app mount, provides token to children.
+ * Auto-login on app mount.
+ * The server manages session via HTTP-only cookies.
+ * We track "is authenticated" via a localStorage flag.
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
@@ -10,7 +12,8 @@ import { login, getToken, clearTokens } from '../services/authService';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-    const [token, setToken] = useState(() => getToken());
+    // getToken() returns the auth flag string, or null
+    const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -21,12 +24,9 @@ export function AuthProvider({ children }) {
         setError(null);
 
         try {
-            // Clear any existing tokens first
-            clearTokens();
-
             const success = await login();
             if (success) {
-                setToken('COOKIE_AUTH_SESSION');
+                setIsAuthenticated(true);
                 setError(null);
                 console.log('✅ Login successful!');
                 return success;
@@ -47,21 +47,12 @@ export function AuthProvider({ children }) {
             console.log('🚀 APP STARTED - Initiating auto-login...');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-            // Check for existing token
-            const existingToken = getToken();
-            if (existingToken) {
-                console.log('✅ Found existing token in storage');
-                setToken(existingToken);
-                setIsLoading(false);
-                return;
-            }
-
-            // No existing token - perform fresh login
-            console.log('📭 No existing token found, performing fresh login...');
+            // Always do a fresh login to get a fresh session cookie
+            console.log('📭 Performing fresh login...');
             try {
                 const success = await login();
                 if (success) {
-                    setToken('COOKIE_AUTH_SESSION');
+                    setIsAuthenticated(true);
                     setError(null);
                 }
             } catch (err) {
@@ -77,14 +68,14 @@ export function AuthProvider({ children }) {
 
     const logout = () => {
         clearTokens();
-        setToken(null);
+        setIsAuthenticated(false);
         setError(null);
         console.log('👋 Logged out');
     };
 
     const value = {
-        token,
-        isAuthenticated: !!token,
+        token: isAuthenticated ? 'COOKIE_SESSION' : null,
+        isAuthenticated,
         isLoading,
         error,
         logout,

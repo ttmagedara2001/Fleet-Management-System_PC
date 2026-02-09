@@ -1,8 +1,14 @@
 /**
- * Simple Auto-Login Authentication Service
+ * Authentication Service (Cookie-Based)
  *
- * Hardcoded credentials for automatic login on dashboard open.
- * Calls /get-token API and returns JWT token.
+ * The server uses HTTP-only cookies for auth.
+ * - POST /get-token sets the session cookie via Set-Cookie header.
+ * - POST /get-new-token refreshes the session cookie.
+ * - All subsequent requests carry the cookie automatically
+ *   (fetch with credentials:"include", axios with withCredentials:true).
+ *
+ * We keep a simple localStorage flag so the React context knows
+ * whether the user has successfully authenticated in this session.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -11,30 +17,39 @@ const CREDENTIALS = {
   password: import.meta.env.VITE_USER_PASSWORD,
 };
 
+const AUTH_FLAG = "fabrix_authenticated";
+
 /**
- * Auto-login: Calls /user/get-token API with credentials from .env
- * Returns a promise that resolves when login is complete
+ * POST /get-token – authenticate with email + password.
+ * The server responds with Set-Cookie; no JWT is stored client-side.
  */
 export async function login() {
   console.log("🔐 AUTO-LOGIN: Initiating authentication...");
   try {
-    const response = await fetch(`${API_BASE_URL}/user/get-token`, {
+    const response = await fetch(`${API_BASE_URL}/get-token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      credentials: "include",
+      credentials: "include", // send & receive cookies
       body: JSON.stringify({
         email: CREDENTIALS.email,
         password: CREDENTIALS.password,
       }),
     });
+
+    // Read body as text first (server may return empty body)
+    const text = await response.text();
+
     if (!response.ok) {
-      console.error("❌ Authentication Failed");
+      console.error("❌ Authentication Failed:", response.status, text);
       throw new Error(`Login failed: ${response.status}`);
     }
-    console.log("✅ AUTHENTICATION SUCCESSFUL");
+
+    // Mark as authenticated (cookie is managed by the browser)
+    localStorage.setItem(AUTH_FLAG, "true");
+    console.log("✅ AUTHENTICATION SUCCESSFUL (cookie-based)");
     return true;
   } catch (error) {
     console.error("❌ AUTHENTICATION ERROR:", error.message);
@@ -42,12 +57,51 @@ export async function login() {
   }
 }
 
-// No-op for getToken/clearTokens: all auth is now cookie-based
-export function getToken() {
-  return null;
-}
-export function clearTokens() {
-  console.log("🧹 Tokens cleared (noop, cookie-based auth)");
+/**
+ * POST /get-new-token – refresh the session cookie.
+ * Called automatically by the axios 401 interceptor.
+ * Returns true on success, false on failure.
+ */
+export async function refreshSession() {
+  try {
+    console.log("🔄 Refreshing session cookie via /get-new-token...");
+    const response = await fetch(`${API_BASE_URL}/get-new-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      console.error("❌ Session refresh failed:", response.status);
+      return false;
+    }
+
+    console.log("✅ Session cookie refreshed");
+    return true;
+  } catch (error) {
+    console.error("❌ Session refresh error:", error.message);
+    return false;
+  }
 }
 
-export default { login, getToken, clearTokens };
+/**
+ * Check if the user has authenticated in this session.
+ * Returns a truthy string so AuthContext can use !!getToken() as isAuthenticated.
+ */
+export function getToken() {
+  return localStorage.getItem(AUTH_FLAG) || null;
+}
+
+/**
+ * Clear the auth flag (logout). The cookie will expire on its own
+ * or be cleared by the server.
+ */
+export function clearTokens() {
+  localStorage.removeItem(AUTH_FLAG);
+  console.log("🧹 Auth flag cleared");
+}
+
+export default { login, refreshSession, getToken, clearTokens };

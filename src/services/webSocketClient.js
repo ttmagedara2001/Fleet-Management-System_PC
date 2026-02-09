@@ -1,5 +1,7 @@
 /* ======================================================
-   WEBSOCKET CONNECTION
+   WEBSOCKET CONNECTION (Cookie-Based Auth)
+   The browser sends HTTP-only cookies automatically during
+   the WebSocket handshake — no token query param needed.
 ====================================================== */
 import { Client } from "@stomp/stompjs";
 

@@ -10,7 +10,8 @@ import {
     Globe,
     AlertCircle,
     Database,
-    Bot
+    Bot,
+    Trash2
 } from 'lucide-react';
 import {
     LineChart,
@@ -25,8 +26,9 @@ import {
     Bar
 } from 'recharts';
 import { useDevice } from '../contexts/DeviceContext';
-import { getDeviceStreamData, getTopicStreamData, getDeviceStateDetails, getTimeRange } from '../services/api';
+import { getDeviceStreamData, getTopicStreamData, getDeviceStateDetails, updateStateDetails, getTimeRange } from '../services/api';
 import { getRobotsForDevice } from '../config/robotRegistry';
+import { TASK_PHASES, PHASE_LABELS, PHASE_COLORS, computePhaseProgress, findRoomAtPoint, ROOMS } from '../utils/telemetryMath';
 
 function Analysis() {
     const { selectedDeviceId, currentRobots, taskUpdateVersion, fetchRobotTasks } = useDevice();
@@ -150,7 +152,13 @@ function Analysis() {
                             const robotId = robotIdMatch ? robotIdMatch[1] : null;
 
                             if (robotId) {
-                                const taskData = typeof value === 'string' ? JSON.parse(value) : value;
+                                // Unwrap { payload: ... } envelope from state API
+                                let taskData = typeof value === 'string' ? JSON.parse(value) : value;
+                                if (taskData?.payload) {
+                                    taskData = typeof taskData.payload === 'string'
+                                        ? JSON.parse(taskData.payload)
+                                        : taskData.payload;
+                                }
 
                                 if (!robotMap[robotId]) {
                                     robotMap[robotId] = { robotId: robotId };
@@ -158,10 +166,11 @@ function Analysis() {
 
                                 robotMap[robotId] = {
                                     ...robotMap[robotId],
-                                    taskId: taskData.taskId || '-',
-                                    taskName: taskData.taskName || 'No Task',
+                                    taskId: taskData.taskId || taskData.task_id || '-',
+                                    taskName: 'Deliver',
                                     status: taskData.status || 'Assigned',
-                                    location: taskData.location || '-',
+                                    location: taskData['initiate location'] || taskData.source_name || taskData.location || '-',
+                                    destination: taskData.destination || taskData.destination_name || '-',
                                     priority: taskData.priority || 'Normal'
                                 };
                             }
@@ -208,8 +217,8 @@ function Analysis() {
                     // Fetch Battery and Temp in parallel for this robot
                     // Topic pattern: fleetMS/robots/<ID>/<metric>
                     const [batRes, tempRes] = await Promise.all([
-                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/battery`, startTime, endTime).catch(() => null),
-                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/temperature`, startTime, endTime).catch(() => null)
+                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/battery`, startTime, endTime, '0', '100', { silent: true }).catch(() => null),
+                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/temperature`, startTime, endTime, '0', '100', { silent: true }).catch(() => null)
                     ]);
 
                     // Helper to get latest value from valid response
@@ -264,9 +273,9 @@ function Analysis() {
 
             // Fetch combined topic AND per-metric sub-topics in parallel
             const [combinedRes, batteryRes, tempRes] = await Promise.all([
-                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
-                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/battery`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] })),
-                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/temperature`, startTime, endTime).catch(() => ({ status: 'Failed', data: [] }))
+                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}`, startTime, endTime, '0', '100', { silent: true }).catch(() => ({ status: 'Failed', data: [] })),
+                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/battery`, startTime, endTime, '0', '100', { silent: true }).catch(() => ({ status: 'Failed', data: [] })),
+                getTopicStreamData(selectedDeviceId, `fleetMS/robots/${selectedRobotForHistory}/temperature`, startTime, endTime, '0', '100', { silent: true }).catch(() => ({ status: 'Failed', data: [] }))
             ]);
 
             const dataByTimestamp = {};
@@ -316,9 +325,58 @@ function Analysis() {
 
     // Progress chart removed per user request; mergedChartData omitted
 
+    // Deep-unwrap a raw value that may be nested as stringified JSON or { payload: ... } objects
+    const deepUnwrapPayload = useCallback((raw) => {
+        let obj = raw;
+        for (let i = 0; i < 5; i++) {
+            if (typeof obj === 'string') {
+                try { obj = JSON.parse(obj); } catch { return obj; }
+            } else if (obj && typeof obj === 'object' && 'payload' in obj && obj.payload !== undefined) {
+                obj = obj.payload;
+            } else {
+                break;
+            }
+        }
+        return obj;
+    }, []);
+
+    // Format raw task type codes like "MOVE_FOUP" → "Move Foup", "pickup" → "Pickup"
+    const formatTaskName = useCallback((raw) => {
+        if (!raw) return null;
+        const s = String(raw).trim();
+        if (!s) return null;
+        // Convert UPPER_SNAKE_CASE or lower_snake_case to Title Case
+        return s
+            .split(/[_\-\s]+/)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    }, []);
+
+    // Normalise status string to user-friendly display value
+    const normalizeStatus = useCallback((raw, phase) => {
+        // If a phase is provided from the new system, use it as the source of truth
+        if (phase && PHASE_LABELS[phase]) {
+            return PHASE_LABELS[phase];
+        }
+        if (!raw) return null;
+        const s = String(raw).toLowerCase().trim();
+        if (s === 'completed' || s === 'done' || s === 'finished' || s === 'complete') return 'Completed';
+        if (s === 'in_progress' || s === 'in progress' || s === 'running' || s === 'moving' || s === 'active' || s === 'executing') return 'In Progress';
+        if (s === 'assigned' || s === 'allocated' || s === 'queued' || s === 'waiting' || s === 'scheduled' || s === 'pending') return 'Assigned';
+        if (s === 'failed' || s === 'error' || s === 'aborted' || s === 'cancelled') return 'Failed';
+        if (s === 'stalled') return '⚠️ Stalled';
+        if (s === 'ready' || s === 'idle') return 'Ready';
+        // Fallback: title-case the raw value
+        return raw.charAt(0).toUpperCase() + raw.slice(1);
+    }, []);
+
     // Helper: parse a raw task payload into a normalized entry
-    const parseTaskPayload = useCallback((payloadObj, robotId, robotInfo, cutoff, source) => {
-        if (!payloadObj) return null;
+    const parseTaskPayload = useCallback((rawPayload, robotId, robotInfo, cutoff, source) => {
+        if (!rawPayload) return null;
+
+        // Deep-unwrap any string / nested { payload } wrapping
+        const payloadObj = deepUnwrapPayload(rawPayload);
+        if (!payloadObj || typeof payloadObj !== 'object') return null;
 
         // Extract timestamp
         const possibleTs = payloadObj.timestamp || payloadObj.time || payloadObj.updatedAt || null;
@@ -331,20 +389,24 @@ function Analysis() {
         if (ts < cutoff) return null;
 
         const progress = Number(payloadObj.progress ?? payloadObj.percent ?? payloadObj.progress_pct ?? NaN);
-        const startTs = (payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start)
-            ? new Date(payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start).getTime() : null;
+        const startTs = (payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start || payloadObj.assignedAt)
+            ? new Date(payloadObj.start_time || payloadObj.started_at || payloadObj.startAt || payloadObj.start || payloadObj.assignedAt).getTime() : null;
         const completionTs = (payloadObj.completion_time || payloadObj.completed_at || payloadObj.completedAt || payloadObj.end)
             ? new Date(payloadObj.completion_time || payloadObj.completed_at || payloadObj.completedAt || payloadObj.end).getTime() : null;
         const elapsedMs = payloadObj.elapsed_ms || payloadObj.elapsed || (completionTs && startTs ? completionTs - startTs : null);
 
-        let status = payloadObj.status || payloadObj.state || null;
-        if (!status) {
-            status = completionTs ? 'Completed' : startTs ? 'In Progress' : 'Pending';
+        // Extract phase (new task tracking system)
+        const phase = payloadObj.phase || null;
+
+        // Resolve status — prefer phase label if available, else raw status
+        let rawStatus = payloadObj.status || payloadObj.state || null;
+        let status;
+        if (phase && PHASE_LABELS[phase]) {
+            status = PHASE_LABELS[phase];
+        } else if (!rawStatus) {
+            status = completionTs ? 'Completed' : startTs ? 'In Progress' : 'Assigned';
         } else {
-            const sl = String(status).toLowerCase();
-            if ((sl === 'assigned' || sl === 'queued' || sl === 'waiting' || sl === 'scheduled') && !startTs) {
-                status = 'Pending';
-            }
+            status = normalizeStatus(rawStatus, phase);
         }
 
         const srcLat = payloadObj.source_lat ?? payloadObj.src_lat ?? payloadObj.sourceLat ?? payloadObj.start_lat ?? payloadObj.startLat ?? payloadObj.origin?.lat ?? payloadObj.source?.lat ?? payloadObj.start?.lat;
@@ -357,14 +419,22 @@ function Analysis() {
         const destLocationName = payloadObj.destination_name || payloadObj.destinationName || payloadObj.dest_name || payloadObj.end_name
             || (typeof payloadObj.destination === 'string' ? payloadObj.destination : null);
 
+        // Task type is always Deliver now
+        const rawTaskName = 'Deliver';
+
+        // Resolve task ID
+        const taskId = payloadObj.taskId || payloadObj.task_id || payloadObj.id || null;
+
         return {
             robotId: payloadObj.robotId || payloadObj.robot || robotId,
             robotName: robotInfo.name || robotId,
-            taskId: payloadObj.taskId || payloadObj.task_id || payloadObj.id || null,
-            taskName: payloadObj.taskName || payloadObj.task_name || payloadObj.type || payloadObj.task || null,
+            taskId,
+            taskName: formatTaskName(rawTaskName),
+            rawTaskType: rawTaskName,
+            phase,
             status,
             timestamp: ts,
-            progress: Number.isFinite(Number(progress)) ? Number(progress) : (status === 'Completed' ? 100 : status === 'Pending' ? 0 : null),
+            progress: Number.isFinite(Number(progress)) ? Number(progress) : (phase === TASK_PHASES.COMPLETED ? 100 : phase === TASK_PHASES.ASSIGNED ? 0 : status === 'Completed' ? 100 : null),
             startTime: startTs,
             completionTime: completionTs,
             elapsedMs,
@@ -373,9 +443,14 @@ function Analysis() {
             sourceLocation: sourceLocationName,
             destinationLocation: destLocationName,
             source_lat: srcLat, source_lng: srcLng,
-            destination_lat: dstLat, destination_lng: dstLng
+            destination_lat: dstLat, destination_lng: dstLng,
+            // Phase timestamps
+            sourceArrivedAt: payloadObj.sourceArrivedAt ? new Date(payloadObj.sourceArrivedAt).getTime() : null,
+            pickedUpAt: payloadObj.pickedUpAt ? new Date(payloadObj.pickedUpAt).getTime() : null,
+            destinationArrivedAt: payloadObj.destinationArrivedAt ? new Date(payloadObj.destinationArrivedAt).getTime() : null,
+            deliveredAt: payloadObj.deliveredAt ? new Date(payloadObj.deliveredAt).getTime() : null,
         };
-    }, []);
+    }, [deepUnwrapPayload, formatTaskName, normalizeStatus]);
 
     // Fetch per-robot task history (last 24 hours) from both STATE and STREAM
     const fetchTaskHistory = useCallback(async () => {
@@ -393,6 +468,7 @@ function Analysis() {
             const deviceState = await getDeviceStateDetails(selectedDeviceId).catch(() => ({ status: 'Failed', data: {} }));
 
             if (deviceState.status === 'Success' && deviceState.data) {
+                console.log('[Analysis] 🔍 State API raw data keys:', Object.keys(deviceState.data).filter(k => k.includes('/task')));
                 Object.entries(deviceState.data).forEach(([topicKey, value]) => {
                     if (topicKey.includes('fleetMS/robots/') && topicKey.includes('/task')) {
                         try {
@@ -400,79 +476,99 @@ function Analysis() {
                             const robotId = match?.[1];
                             if (!robotId) return;
                             const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
-                            let payloadObj = typeof value === 'string' ? JSON.parse(value || '{}') : (value?.payload || value);
-                            if (payloadObj?.payload && typeof payloadObj.payload === 'object') payloadObj = payloadObj.payload;
-                            const entry = parseTaskPayload(payloadObj, robotId, robotInfo, cutoff, 'state');
+                            // Pass the raw value directly — parseTaskPayload's deepUnwrap handles all nesting
+                            console.log(`[Analysis] 🔍 State [${robotId}] raw value:`, typeof value, value);
+                            const entry = parseTaskPayload(value, robotId, robotInfo, cutoff, 'state');
                             if (entry) {
+                                console.log(`[Analysis] ✅ State [${robotId}] parsed:`, entry.taskName, entry.taskId, entry.status);
                                 if (!taskMap[robotId]) taskMap[robotId] = [];
                                 taskMap[robotId].push(entry);
                             }
-                        } catch { /* ignore */ }
+                        } catch (e) { console.warn('[Analysis] State parse error:', e); }
                     }
                 });
             }
 
-            // 2. Fetch historical stream data per robot (parallel per robot)
-            await Promise.all(deviceRobots.map(async (robot) => {
-                const robotId = robot.id;
-                const robotInfo = robot;
-                try {
-                    // Fetch task and task-related sub-topics in parallel
-                    const [taskRes, ackRes, progressRes] = await Promise.all([
-                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/tasks`, startTime, endTime, '0', '200').catch(() => null),
-                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/tasks/ack`, startTime, endTime, '0', '200').catch(() => null),
-                        getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}/tasks/progress`, startTime, endTime, '0', '200').catch(() => null),
-                    ]);
-
-                    const processStreamRes = (res) => {
-                        if (!res || res.status !== 'Success' || !Array.isArray(res.data)) return;
-                        res.data.forEach(record => {
-                            try {
-                                const payloadObj = JSON.parse(record.payload || '{}');
-                                // Use record timestamp if payload doesn't have one
-                                if (!payloadObj.timestamp && record.timestamp) payloadObj.timestamp = record.timestamp;
-                                const entry = parseTaskPayload(payloadObj, robotId, robotInfo, cutoff, 'stream');
-                                if (entry) {
-                                    if (!taskMap[robotId]) taskMap[robotId] = [];
-                                    taskMap[robotId].push(entry);
-                                }
-                            } catch { /* ignore */ }
-                        });
-                    };
-
-                    processStreamRes(taskRes);
-                    processStreamRes(ackRes);
-                    processStreamRes(progressRes);
-                } catch { /* ignore per-robot errors */ }
-            }));
+            // 2. Fetch ALL stream data in a single call, then filter task-related topics client-side
+            try {
+                const streamRes = await getDeviceStreamData(selectedDeviceId, startTime, endTime, '0', '500');
+                if (streamRes.status === 'Success' && Array.isArray(streamRes.data)) {
+                    streamRes.data.forEach(record => {
+                        const topic = record.topicSuffix || record.topic || '';
+                        // Match task-related topics: fleetMS/robots/{id}/task* 
+                        const taskTopicMatch = topic.match(/robots\/([^/]+)\/task/);
+                        if (!taskTopicMatch) return;
+                        const robotId = taskTopicMatch[1];
+                        const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
+                        try {
+                            // Build a combined object with record metadata + payload content
+                            let payloadObj;
+                            try { payloadObj = JSON.parse(record.payload || '{}'); } catch { payloadObj = record.payload; }
+                            // Deep-unwrap is handled inside parseTaskPayload
+                            // Inject record-level timestamp if payload doesn't have one
+                            if (typeof payloadObj === 'object' && payloadObj && !payloadObj.timestamp && record.timestamp) {
+                                payloadObj.timestamp = record.timestamp;
+                            }
+                            const entry = parseTaskPayload(payloadObj, robotId, robotInfo, cutoff, 'stream');
+                            if (entry) {
+                                if (!taskMap[robotId]) taskMap[robotId] = [];
+                                taskMap[robotId].push(entry);
+                            }
+                        } catch { /* ignore parse errors */ }
+                    });
+                }
+            } catch { /* ignore stream fetch error */ }
 
             // Also include tasks from live context (WebSocket) that might not be in API yet
             const liveRobots = currentRobots || {};
             Object.entries(liveRobots).forEach(([robotId, robot]) => {
                 if (robot?.task) {
                     const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
-                    const entry = parseTaskPayload(robot.task, robotId, robotInfo, cutoff, 'live');
+                    // Enrich live task with real-time progress from GPS position
+                    const liveTask = { ...robot.task };
+                    if (liveTask.phase && robot.location?.lat != null && robot.location?.lng != null) {
+                        liveTask.progress = computePhaseProgress(liveTask, robot.location.lat, robot.location.lng);
+                    }
+                    const entry = parseTaskPayload(liveTask, robotId, robotInfo, cutoff, 'live');
                     if (entry) {
                         if (!taskMap[robotId]) taskMap[robotId] = [];
                         taskMap[robotId].push(entry);
                     }
                 }
+                // Also include any task_queue entries if robot holds multiple tasks
+                if (Array.isArray(robot?.taskQueue)) {
+                    const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
+                    robot.taskQueue.forEach(qTask => {
+                        const entry = parseTaskPayload(qTask, robotId, robotInfo, cutoff, 'live');
+                        if (entry) {
+                            if (!taskMap[robotId]) taskMap[robotId] = [];
+                            taskMap[robotId].push(entry);
+                        }
+                    });
+                }
             });
 
-            // Deduplicate per robot by taskId (prefer most recent timestamp)
+            // Deduplicate per robot by taskId — prefer live source (most up-to-date progress)
             Object.keys(taskMap).forEach(robotId => {
-                const seen = {};
-                const deduped = [];
-                // Sort newest first so we keep the latest version of each task
-                taskMap[robotId].sort((a, b) => b.timestamp - a.timestamp);
-                taskMap[robotId].forEach(entry => {
-                    const key = entry.taskId || `${entry.taskName}-${entry.timestamp}`;
-                    if (!seen[key]) {
-                        seen[key] = true;
-                        deduped.push(entry);
+                const byKey = {};
+                // Sort so 'live' entries come first — they have the freshest progress
+                const prioritized = [...taskMap[robotId]].sort((a, b) => {
+                    const sourcePri = { live: 0, state: 1, stream: 2 };
+                    return (sourcePri[a.source] ?? 3) - (sourcePri[b.source] ?? 3);
+                });
+                prioritized.forEach(entry => {
+                    const key = entry.taskId || `${entry.taskName}-${entry.robotId}-${Math.floor(entry.timestamp / 60000)}`;
+                    if (!byKey[key]) {
+                        byKey[key] = entry;
+                    } else {
+                        // Merge live progress into existing entry if source is older
+                        const existing = byKey[key];
+                        if (entry.source === 'live' || (entry.progress != null && existing.progress == null)) {
+                            byKey[key] = { ...existing, progress: entry.progress, phase: entry.phase || existing.phase, status: entry.status || existing.status };
+                        }
                     }
                 });
-                taskMap[robotId] = deduped;
+                taskMap[robotId] = Object.values(byKey).sort((a, b) => b.timestamp - a.timestamp);
             });
 
             setRobotTaskMap(taskMap);
@@ -493,6 +589,46 @@ function Analysis() {
         }
     }, [selectedDeviceId, deviceRobots, currentRobots, parseTaskPayload]);
 
+    // Delete a task: clear the robot's task topic by sending an empty payload
+    const handleDeleteTask = useCallback(async (robotId, taskEntry) => {
+        if (!selectedDeviceId || !robotId) return;
+
+        const confirmMsg = taskEntry.taskName
+            ? `Delete task "${taskEntry.taskName}" from ${taskEntry.robotName || robotId}?`
+            : `Delete this task from ${taskEntry.robotName || robotId}?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            // Clear the task state by sending a cleared payload
+            await updateStateDetails(selectedDeviceId, `fleetMS/robots/${robotId}/task`, {
+                task: null,
+                taskId: null,
+                status: 'cleared',
+                clearedAt: new Date().toISOString(),
+                clearedBy: 'user'
+            });
+
+            // Optimistically remove from local state
+            setRobotTaskMap(prev => {
+                const updated = { ...prev };
+                if (updated[robotId]) {
+                    const key = taskEntry.taskId || `${taskEntry.taskName}-${taskEntry.timestamp}`;
+                    updated[robotId] = updated[robotId].filter(t => {
+                        const tKey = t.taskId || `${t.taskName}-${t.timestamp}`;
+                        return tKey !== key;
+                    });
+                }
+                return updated;
+            });
+
+            console.log(`[Analysis] 🗑️ Task deleted for ${robotId}:`, taskEntry.taskId || taskEntry.taskName);
+        } catch (err) {
+            console.error(`[Analysis] ❌ Failed to delete task for ${robotId}:`, err);
+            alert('Failed to delete task. Please try again.');
+        }
+    }, [selectedDeviceId]);
+
     // Fetch data from API
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -502,7 +638,7 @@ function Analysis() {
 
         try {
             // Fetch environment topic which contains temperature/humidity/pressure
-            const envRes = await getTopicStreamData(selectedDeviceId, 'fleetMS/environment', startTime, endTime).catch(() => ({ status: 'Failed', data: [] }));
+            const envRes = await getTopicStreamData(selectedDeviceId, 'fleetMS/environment', startTime, endTime, '0', '100', { silent: true }).catch(() => ({ status: 'Failed', data: [] }));
 
             const dataByTimestamp = {};
 
@@ -643,12 +779,20 @@ function Analysis() {
 
     const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED', pressure: '#3B82F6' };
 
-    const getStatusStyle = (status) => {
+    const getStatusStyle = (status, phase) => {
+        // Phase-based coloring (preferred)
+        if (phase && PHASE_COLORS[phase]) {
+            return PHASE_COLORS[phase];
+        }
         const s = status?.toLowerCase();
-        if (s?.includes('completed') || s?.includes('ready') || s?.includes('idle')) return { background: '#D1FAE5', color: '#065F46' };
-        if (s?.includes('progress') || s?.includes('active')) return { background: '#DBEAFE', color: '#1D4ED8' };
-        if (s?.includes('pending') || s?.includes('assigned')) return { background: '#FEF3C7', color: '#92400E' };
-        if (s?.includes('warning') || s?.includes('low')) return { background: '#FEE2E2', color: '#991B1B' };
+        if (s?.includes('completed') || s?.includes('done') || s?.includes('finished') || s?.includes('delivered')) return { background: '#D1FAE5', color: '#065F46' };
+        if (s?.includes('en route') || s?.includes('progress') || s?.includes('active') || s?.includes('moving') || s?.includes('executing')) return { background: '#DBEAFE', color: '#1D4ED8' };
+        if (s?.includes('at source') || s?.includes('picking') || s?.includes('at destination') || s?.includes('delivering')) return { background: '#FEF3C7', color: '#92400E' };
+        if (s?.includes('assigned') || s?.includes('pending') || s?.includes('queued') || s?.includes('scheduled')) return { background: '#E0E7FF', color: '#4F46E5' };
+        if (s?.includes('failed') || s?.includes('error') || s?.includes('aborted') || s?.includes('cancelled')) return { background: '#FEE2E2', color: '#991B1B' };
+        if (s?.includes('stalled')) return { background: '#FEF3C7', color: '#B45309' };
+        if (s?.includes('ready') || s?.includes('idle')) return { background: '#E0E7FF', color: '#3730A3' };
+        if (s?.includes('warning') || s?.includes('low')) return { background: '#FEF3C7', color: '#92400E' };
         return { background: '#F3F4F6', color: '#6B7280' };
     };
 
@@ -864,22 +1008,31 @@ function Analysis() {
                         const isExpanded = expandedRobots[robotId] ?? false;
                         const filter = robotStatusFilter[robotId] || 'all';
 
-                        // Count by status
+                        // Count by status (phase-aware)
                         const counts = { all: tasks.length, allocated: 0, completed: 0, incomplete: 0 };
                         tasks.forEach(t => {
+                            const phase = t.phase;
+                            if (phase === TASK_PHASES.COMPLETED) { counts.completed++; return; }
+                            if (phase === TASK_PHASES.ASSIGNED) { counts.allocated++; return; }
+                            if (phase && phase !== TASK_PHASES.FAILED) { counts.incomplete++; return; }
+                            // Legacy fallback
                             const s = String(t.status || '').toLowerCase();
-                            if (s.includes('complete') || s.includes('done')) counts.completed++;
-                            else if (s === 'assigned' || s === 'pending' || s === 'queued' || s === 'scheduled') counts.allocated++;
+                            if (s.includes('complete') || s.includes('done') || s.includes('delivered')) counts.completed++;
+                            else if (s.includes('assigned') || s === 'pending' || s === 'queued' || s === 'scheduled') counts.allocated++;
                             else counts.incomplete++;
                         });
 
-                        // Filter tasks
+                        // Filter tasks (phase-aware)
                         const filteredTasks = tasks.filter(t => {
                             if (filter === 'all') return true;
+                            const phase = t.phase;
                             const s = String(t.status || '').toLowerCase();
-                            if (filter === 'allocated') return s === 'assigned' || s === 'pending' || s === 'queued' || s === 'scheduled';
-                            if (filter === 'completed') return s.includes('complete') || s.includes('done');
-                            if (filter === 'incomplete') return !s.includes('complete') && !s.includes('done') && s !== 'assigned' && s !== 'pending' && s !== 'queued' && s !== 'scheduled';
+                            if (filter === 'allocated') return phase === TASK_PHASES.ASSIGNED || (!phase && (s.includes('assigned') || s === 'pending'));
+                            if (filter === 'completed') return phase === TASK_PHASES.COMPLETED || (!phase && (s.includes('complete') || s.includes('done')));
+                            if (filter === 'incomplete') {
+                                if (phase) return phase !== TASK_PHASES.COMPLETED && phase !== TASK_PHASES.ASSIGNED;
+                                return !s.includes('complete') && !s.includes('done') && !s.includes('assigned') && s !== 'pending';
+                            }
                             return true;
                         }).sort((a, b) => b.timestamp - a.timestamp);
 
@@ -973,22 +1126,24 @@ function Analysis() {
                                             <table style={styles.table}>
                                                 <thead>
                                                     <tr>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Time</th>
+                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Timestamp</th>
+                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Task Name</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Task ID</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Task</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Status</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Progress</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Priority</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Route</th>
+                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Source</th>
+                                                        <th style={{ ...styles.th, fontSize: '12px', width: '50px', textAlign: 'center' }}>Actions</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {filteredTasks.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan="7" style={{ ...styles.td, textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
+                                                            <td colSpan="9" style={{ ...styles.td, textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
                                                                 {filter === 'all'
-                                                                    ? 'No tasks in the last 24 hours'
-                                                                    : `No ${filter} tasks`}
+                                                                    ? `No tasks recorded for ${robot.name || robotId} in the last 24 hours`
+                                                                    : `No ${filter} tasks for ${robot.name || robotId}`}
                                                             </td>
                                                         </tr>
                                                     ) : filteredTasks.map((row, idx) => {
@@ -999,36 +1154,88 @@ function Analysis() {
                                                         };
                                                         const src = formatLoc(row.sourceLocation, row.source_lat, row.source_lng);
                                                         const dst = formatLoc(row.destinationLocation, row.destination_lat, row.destination_lng);
-                                                        const route = src && dst ? `${src} → ${dst}` : (src || dst || '-');
+                                                        const route = src && dst ? `${src} → ${dst}` : (src ? `From: ${src}` : dst ? `To: ${dst}` : '—');
 
                                                         const progressVal = row.progress;
                                                         const progressColor = progressVal >= 100 ? '#059669' : progressVal >= 50 ? '#2563EB' : progressVal > 0 ? '#D97706' : '#9CA3AF';
 
+                                                        // Format elapsed time
+                                                        const formatElapsed = (ms) => {
+                                                            if (!ms) return null;
+                                                            const secs = Math.floor(ms / 1000);
+                                                            if (secs < 60) return `${secs}s`;
+                                                            const mins = Math.floor(secs / 60);
+                                                            if (mins < 60) return `${mins}m ${secs % 60}s`;
+                                                            return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+                                                        };
+
+                                                        // Source badge: state / stream / live
+                                                        const sourceBadge = {
+                                                            state: { bg: '#EDE9FE', color: '#6D28D9', label: 'State' },
+                                                            stream: { bg: '#DBEAFE', color: '#1D4ED8', label: 'Stream' },
+                                                            live: { bg: '#D1FAE5', color: '#065F46', label: 'Live' }
+                                                        }[row.source] || { bg: '#F3F4F6', color: '#6B7280', label: row.source || '?' };
+
                                                         return (
-                                                            <tr key={`${row.taskId}-${row.timestamp}-${idx}`}>
+                                                            <tr key={`${row.taskId}-${row.timestamp}-${idx}`} style={{ transition: 'background 0.15s' }}
+                                                                onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+                                                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                                            >
                                                                 <td style={{ ...styles.td, fontSize: '12px', whiteSpace: 'nowrap' }}>
-                                                                    {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                                                    {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                                                                     <div style={{ fontSize: '10px', color: '#9CA3AF' }}>
                                                                         {new Date(row.timestamp).toLocaleDateString()}
                                                                     </div>
                                                                 </td>
-                                                                <td style={{ ...styles.td, fontSize: '12px', fontFamily: 'monospace' }}>{row.taskId || '-'}</td>
-                                                                <td style={{ ...styles.td, fontSize: '12px', fontWeight: '500', color: '#1F2937' }}>{row.taskName || '-'}</td>
+                                                                <td style={{ ...styles.td, fontSize: '12px' }}>
+                                                                    <div style={{ fontWeight: '600', color: '#1F2937' }}>
+                                                                        {row.taskName || 'Unnamed Task'}
+                                                                    </div>
+                                                                    {row.rawTaskType && (
+                                                                        <span style={{
+                                                                            fontSize: '10px', fontFamily: 'monospace', color: '#6B7280',
+                                                                            background: '#F3F4F6', padding: '1px 4px', borderRadius: '4px', marginTop: '2px', display: 'inline-block'
+                                                                        }}>
+                                                                            {row.rawTaskType}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td style={{ ...styles.td, fontSize: '11px', fontFamily: 'monospace', color: '#6B7280' }}>
+                                                                    {row.taskId ? (
+                                                                        <span title={row.taskId}>
+                                                                            {row.taskId.length > 12 ? `${row.taskId.slice(0, 12)}…` : row.taskId}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span style={{ color: '#D1D5DB' }}>—</span>
+                                                                    )}
+                                                                </td>
                                                                 <td style={styles.td}>
-                                                                    <span style={{ ...styles.statusBadge, ...getStatusStyle(row.status), fontSize: '11px' }}>
+                                                                    <span style={{ ...styles.statusBadge, ...getStatusStyle(row.status, row.phase), fontSize: '11px' }}>
                                                                         {row.status}
                                                                     </span>
+                                                                    {row.elapsedMs && (
+                                                                        <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '2px' }}>
+                                                                            {formatElapsed(row.elapsedMs)}
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td style={styles.td}>
                                                                     {progressVal != null ? (
-                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                            <div style={{ width: '50px', height: '6px', background: '#F3F4F6', borderRadius: '3px', overflow: 'hidden' }}>
-                                                                                <div style={{ width: `${Math.min(progressVal, 100)}%`, height: '100%', background: progressColor, borderRadius: '3px', transition: 'width 0.3s' }} />
+                                                                        <div>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                                <div style={{ width: '60px', height: '6px', background: '#F3F4F6', borderRadius: '3px', overflow: 'hidden' }}>
+                                                                                    <div style={{ width: `${Math.min(progressVal, 100)}%`, height: '100%', background: progressColor, borderRadius: '3px', transition: 'width 0.3s' }} />
+                                                                                </div>
+                                                                                <span style={{ fontSize: '11px', fontWeight: '600', color: progressColor }}>{progressVal}%</span>
                                                                             </div>
-                                                                            <span style={{ fontSize: '11px', fontWeight: '600', color: progressColor }}>{progressVal}%</span>
+                                                                            {row.phase && PHASE_LABELS[row.phase] && row.phase !== TASK_PHASES.COMPLETED && row.phase !== TASK_PHASES.ASSIGNED && (
+                                                                                <div style={{ fontSize: '9px', color: '#6B7280', marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                                                                    {PHASE_LABELS[row.phase]}
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     ) : (
-                                                                        <span style={{ fontSize: '11px', color: '#9CA3AF' }}>-</span>
+                                                                        <span style={{ fontSize: '11px', color: '#D1D5DB' }}>—</span>
                                                                     )}
                                                                 </td>
                                                                 <td style={{ ...styles.td, fontSize: '12px' }}>
@@ -1040,8 +1247,31 @@ function Analysis() {
                                                                         {row.priority}
                                                                     </span>
                                                                 </td>
-                                                                <td style={{ ...styles.td, fontSize: '11px', color: '#6B7280', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route}>
+                                                                <td style={{ ...styles.td, fontSize: '11px', color: '#6B7280', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route !== '—' ? route : undefined}>
                                                                     {route}
+                                                                </td>
+                                                                <td style={styles.td}>
+                                                                    <span style={{
+                                                                        padding: '1px 5px', borderRadius: '6px', fontSize: '9px', fontWeight: '600',
+                                                                        background: sourceBadge.bg, color: sourceBadge.color
+                                                                    }}>
+                                                                        {sourceBadge.label}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ ...styles.td, textAlign: 'center' }}>
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); handleDeleteTask(robotId, row); }}
+                                                                        title={`Delete task${row.taskName ? ': ' + row.taskName : ''}`}
+                                                                        style={{
+                                                                            background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
+                                                                            borderRadius: '6px', color: '#9CA3AF', transition: 'all 0.15s',
+                                                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+                                                                        }}
+                                                                        onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEE2E2'; }}
+                                                                        onMouseLeave={e => { e.currentTarget.style.color = '#9CA3AF'; e.currentTarget.style.background = 'none'; }}
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
                                                                 </td>
                                                             </tr>
                                                         );

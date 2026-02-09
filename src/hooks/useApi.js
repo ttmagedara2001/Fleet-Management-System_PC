@@ -9,11 +9,12 @@
 
 import { useCallback } from "react";
 import api, {
-  getStreamData,
-  getStateDetails,
-  updateState,
+  getTopicStreamData as getStreamData,
+  getDeviceStateDetails as getStateDetails,
+  updateStateDetails as updateState,
   updateStateDetails,
 } from "../services/api";
+import { generateTaskId } from "../utils/telemetryMath";
 
 export function useApi() {
   // ═══════════════════════════════════════════════════════════════════════
@@ -35,7 +36,7 @@ export function useApi() {
       });
 
       try {
-        const response = await api.post("/user/get-stream-data/device", {
+        const response = await api.post("/get-stream-data/device", {
           deviceId,
           startTime,
           endTime,
@@ -116,7 +117,7 @@ export function useApi() {
     console.log("[API Hook] 📋 Fetching topic state details:", topic);
 
     try {
-      const response = await api.post("/user/get-state-details/device/topic", {
+      const response = await api.post("/get-state-details/device/topic", {
         deviceId,
         topic,
       });
@@ -209,16 +210,17 @@ export function useApi() {
   );
 
   /**
-   * Assign task to robot
+   * Assign a Deliver task to a robot (auto task ID, single task type)
    */
   const assignRobotTask = useCallback(
     async (deviceId, robotId, task) => {
-      console.log("[API Hook] 🤖 Assigning task to robot:", robotId);
-      console.log("[API Hook] 📋 Task:", task);
+      console.log("[API Hook] 🤖 Assigning Deliver task to robot:", robotId);
 
-      // Build payload and include lat/lng if provided in the task object
+      const taskId = task.taskId || task.task_id || generateTaskId();
+
       const payload = {
-        task_type: task.type,
+        task_type: "Deliver",
+        task_id: taskId,
         source: task.source,
         destination: task.destination,
         priority: task.priority || "NORMAL",
@@ -231,9 +233,6 @@ export function useApi() {
         payload.destination_lat = task.destination_lat;
       if (task.destination_lng !== undefined)
         payload.destination_lng = task.destination_lng;
-      // Include task identifier if provided
-      if (task.taskId !== undefined) payload.task_id = task.taskId;
-      if (task.task_id !== undefined) payload.task_id = task.task_id;
 
       // Send task update as an explicit Update State Details HTTP request
       return updateStateDetails(deviceId, `robots/${robotId}/task`, payload);

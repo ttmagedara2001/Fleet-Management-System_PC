@@ -1,62 +1,93 @@
 /**
  * Fleet Management System - API Client
  *
- * Aligned with ProtoNest IoT Backend specifications:
- * - Header: "X-Token" (JWT)
- * - ISO-8601 Timestamps
- * - Stringified pagination parameters
+ * Cookie-based authentication:
+ * - withCredentials: true sends/receives HTTP-only cookies automatically.
+ * - No JWT or X-Token header is needed.
+ * - On 401 → tries /get-new-token (cookie refresh) → falls back to full /get-token re-login.
  */
 
 import axios from "axios";
-import { getToken } from "./authService";
+import { getToken, refreshSession, login as reLogin } from "./authService";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  withCredentials: true,
+  withCredentials: true, // send cookies on every request
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
 
-// Automatically inject JWT token with the "X-Token" header
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers["X-Token"] = token;
-  }
-  // Ensure cookies are sent for cookie-based auth flows
-  config.withCredentials = true;
-  return config;
-});
+// No request interceptor needed — cookies are sent automatically
 
-// Simplified Logging
+// Response interceptor: handle 401 with cookie refresh, plus logging
+let isRefreshing = false;
+let refreshQueue = [];
+
 api.interceptors.response.use(
-  (response) => {
-    // Only log success if needed, but avoid logging full URLs
-    return response;
-  },
-  (error) => {
-    try {
-      // Debounce identical errors to avoid log spam during network outages
-      const status = error.response?.status || "Network";
-      const url = error.config?.url || "unknown";
-      const key = `${status}:${url}`;
-      const now = Date.now();
-      if (
-        !api._lastError ||
-        api._lastError.key !== key ||
-        now - api._lastError.time > 5000
-      ) {
-        // store lightweight last-error info
-        api._lastError = { key, time: now };
-        console.error(`❌ API Error [${status}] ${url}`);
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // On 401, attempt session refresh (once per request).
+    // Skip if user hasn't authenticated yet (initial login flow).
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      getToken()
+    ) {
+      originalRequest._retry = true;
+
+      if (!isRefreshing) {
+        isRefreshing = true;
+        try {
+          let refreshed = await refreshSession();
+          if (!refreshed) {
+            // Cookie refresh failed — do a full re-login
+            await reLogin();
+          }
+          isRefreshing = false;
+          // Replay queued requests (cookies are already updated by browser)
+          refreshQueue.forEach((cb) => cb());
+          refreshQueue = [];
+          return api(originalRequest);
+        } catch (refreshErr) {
+          isRefreshing = false;
+          refreshQueue = [];
+          console.error("❌ Session refresh failed", refreshErr);
+          return Promise.reject(refreshErr);
+        }
+      } else {
+        // Queue while another refresh is in progress
+        return new Promise((resolve) => {
+          refreshQueue.push(() => {
+            resolve(api(originalRequest));
+          });
+        });
       }
-    } catch (e) {
-      // Fallback to safe logging if something unexpected occurs
+    }
+
+    // Logging (debounced)
+    try {
+      if (!error.config?._silent) {
+        const status = error.response?.status || "Network";
+        const url = error.config?.url || "unknown";
+        const key = `${status}:${url}`;
+        const now = Date.now();
+        if (
+          !api._lastError ||
+          api._lastError.key !== key ||
+          now - api._lastError.time > 5000
+        ) {
+          api._lastError = { key, time: now };
+          console.error(`❌ API Error [${status}] ${url}`);
+        }
+      }
+    } catch (_) {
       console.error("❌ API Error", error);
     }
     return Promise.reject(error);
@@ -96,7 +127,7 @@ export async function getDeviceStreamData(
   pagination = "0",
   pageSize = "100",
 ) {
-  const response = await api.post("/user/get-stream-data/device", {
+  const response = await api.post("/get-stream-data/device", {
     deviceId,
     startTime,
     endTime,
@@ -117,15 +148,20 @@ export async function getTopicStreamData(
   endTime,
   pagination = "0",
   pageSize = "100",
+  { silent = false } = {},
 ) {
-  const response = await api.post("/user/get-stream-data/device/topic", {
-    deviceId,
-    topic,
-    startTime,
-    endTime,
-    pagination: String(pagination),
-    pageSize: String(pageSize),
-  });
+  const response = await api.post(
+    "/get-stream-data/device/topic",
+    {
+      deviceId,
+      topic,
+      startTime,
+      endTime,
+      pagination: String(pagination),
+      pageSize: String(pageSize),
+    },
+    { _silent: silent },
+  );
   return response.data;
 }
 
@@ -134,7 +170,7 @@ export async function getTopicStreamData(
  * POST /get-state-details/device/topic
  */
 export async function getTopicStateDetails(deviceId, topic) {
-  const response = await api.post("/user/get-state-details/device/topic", {
+  const response = await api.post("/get-state-details/device/topic", {
     deviceId,
     topic,
   });
@@ -146,7 +182,7 @@ export async function getTopicStateDetails(deviceId, topic) {
  * POST /get-state-details/device
  */
 export async function getDeviceStateDetails(deviceId) {
-  const response = await api.post("/user/get-state-details/device", {
+  const response = await api.post("/get-state-details/device", {
     deviceId,
   });
   return response.data;
@@ -174,7 +210,7 @@ export async function fetchTopicThenDeviceState(deviceId, topic) {
  * POST /update-state-details
  */
 export async function updateStateDetails(deviceId, topic, payload) {
-  const response = await api.post("/user/update-state-details", {
+  const response = await api.post("/update-state-details", {
     deviceId,
     topic,
     payload,

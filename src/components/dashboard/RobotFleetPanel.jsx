@@ -12,7 +12,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
-import { computeRobotHealth, computeTaskCompletion } from '../../utils/telemetryMath';
+import { computeRobotHealth, PHASE_LABELS, PHASE_COLORS, TASK_PHASES } from '../../utils/telemetryMath';
 
 function RobotCard({ robot }) {
     // compute robot health from battery percentage
@@ -245,76 +245,63 @@ function RobotCard({ robot }) {
                 </div>
             </div>
 
-            {/* Task Progress */}
+            {/* Task Status */}
             {robot.task && (
-                <div className="mt-0.5 pt-0.5 md:mt-1 md:pt-1 border-t border-gray-100">
-                    <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-gray-500">Current Task</span>
-                        <div className="flex items-center gap-2">
-                            {/* Task Status Badge */}
-                            {(() => {
-                                const status = (robot.task.status || robot.task.state || '').toLowerCase();
-                                let bgColor, textColor, label;
+                <div className="mt-0.5 pt-0.5 md:mt-1 md:pt-1 border-t border-gray-100"
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', width: '100%' }}>
+                    {/* Status indicator */}
+                    {(() => {
+                        const phase = robot.task.phase || 'ASSIGNED';
+                        const isCompleted = phase === 'COMPLETED';
+                        const isFailed = phase === 'FAILED';
 
-                                if (status === 'assigned' || status === 'allocated') {
-                                    bgColor = '#E0E7FF';
-                                    textColor = '#4F46E5';
-                                    label = '📋 Assigned';
-                                } else if (status === 'completed') {
-                                    bgColor = '#D1FAE5';
-                                    textColor = '#059669';
-                                    label = '✓ Completed';
-                                } else if (status === 'in progress' || status === 'in_progress' || status === 'active' || status === 'moving') {
-                                    bgColor = '#DBEAFE';
-                                    textColor = '#2563EB';
-                                    label = '⟳ In Progress';
-                                } else if (status === 'pending' || status === 'queued' || status === 'scheduled') {
-                                    bgColor = '#FEF3C7';
-                                    textColor = '#D97706';
-                                    label = '◷ Pending';
-                                } else if (status === 'error' || status === 'failed') {
-                                    bgColor = '#FEE2E2';
-                                    textColor = '#DC2626';
-                                    label = '✕ Failed';
-                                } else if (robot.task.task || robot.task.type) {
-                                    // Has task but no recognized status - show as assigned
-                                    bgColor = '#E0E7FF';
-                                    textColor = '#4F46E5';
-                                    label = '📋 Assigned';
-                                } else {
-                                    return null;
-                                }
-
-                                return (
-                                    <span style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '3px',
-                                        padding: '2px 6px',
-                                        borderRadius: '10px',
-                                        fontSize: '9px',
-                                        fontWeight: '700',
-                                        background: bgColor,
-                                        color: textColor
-                                    }}>
-                                        {label}
+                        if (isCompleted) {
+                            return (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                    <CheckCircle size={20} style={{ color: '#059669' }} />
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#059669' }}>
+                                        Completed
                                     </span>
-                                );
-                            })()}
-                            <span className="text-primary-600 font-medium">{robot.task.task || robot.task.type || 'Task'}</span>
-                        </div>
-                    </div>
-                    <div className="progress-bar">
-                        <div
-                            className="progress-bar-fill normal"
-                            style={{ width: `${computeTaskCompletion(robot.task)}%` }}
-                        />
-                    </div>
-                    {robot.task.source && robot.task.destination && (
-                        <p className="text-xs text-gray-500 mt-1">
-                            {robot.task.source} → {robot.task.destination}
-                        </p>
+                                </div>
+                            );
+                        }
+                        if (isFailed) {
+                            return (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                    <AlertTriangle size={20} style={{ color: '#DC2626' }} />
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#DC2626' }}>
+                                        Failed
+                                    </span>
+                                </div>
+                            );
+                        }
+
+                        const phaseStyle = PHASE_COLORS[phase] || { bg: '#E0E7FF', color: '#4F46E5' };
+                        const label = PHASE_LABELS[phase] || phase;
+                        return (
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '3px 10px',
+                                borderRadius: '12px',
+                                fontSize: '10px',
+                                fontWeight: '700',
+                                background: phaseStyle.bg,
+                                color: phaseStyle.color
+                            }}>
+                                {label}
+                            </span>
+                        );
+                    })()}
+                    {(robot.task['initiate location'] || robot.task.source) && robot.task.destination && (
+                        <span className="text-gray-500 text-xs" style={{ marginTop: '4px' }}>
+                            {robot.task['initiate location'] || robot.task.source} → {robot.task.destination}
+                        </span>
                     )}
+                    <span className="text-gray-400" style={{ fontSize: '8px', marginTop: '2px' }}>
+                        {robot.task.task_id || robot.task.taskId || ''}
+                    </span>
                 </div>
             )}
         </div>

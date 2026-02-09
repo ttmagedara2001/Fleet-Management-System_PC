@@ -3,16 +3,23 @@ import { useAuth } from './AuthContext';
 import { connectWebSocket } from '../services/webSocketClient';
 import { getStateDetails, updateStateDetails, getTopicStreamData, getTopicStateDetails, getTimeRange } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
+import {
+    TASK_PHASES, PHASE_LABELS,
+    haversineDistance, ARRIVAL_THRESHOLD_M, AUTO_ADVANCE_DELAY_MS,
+    computePhaseProgress, isInsideRoom, findRoomAtPoint, resolveRoom, ROOMS
+} from '../utils/telemetryMath';
 
 const DeviceContext = createContext(null);
 
-// Helper function to check if a task status represents an active (non-completed) task
+// Helper function to check if a task status/phase represents an active (non-completed) task
 const isActiveTaskStatus = (status) => {
     if (!status) return false;
     const s = String(status).toLowerCase();
-    // These statuses mean the task is still active
     return s === 'assigned' || s === 'pending' || s === 'in progress' || s === 'in_progress' ||
-        s === 'active' || s === 'moving' || s === 'started' || s === 'queued' || s === 'scheduled';
+        s === 'active' || s === 'moving' || s === 'started' || s === 'queued' || s === 'scheduled' ||
+        // Phase-based statuses (Deliver-only)
+        s === 'en_route_to_source' || s === 'picking_up' ||
+        s === 'en_route_to_destination' || s === 'delivering';
 };
 
 // Available devices
@@ -172,7 +179,6 @@ export function DeviceProvider({ children }) {
     // Function to notify that a task was updated
     const notifyTaskUpdate = useCallback(() => {
         setTaskUpdateVersion(v => v + 1);
-        console.log('[Device] 📢 Task update notification triggered');
     }, []);
 
     // Throttle timestamps for automatic control actions per device
@@ -209,7 +215,7 @@ export function DeviceProvider({ children }) {
     // Fetch initial device state from API on device selection change
     useEffect(() => {
         const fetchInitialState = async () => {
-            if (!selectedDeviceId) return;
+            if (!selectedDeviceId || !isAuthenticated) return;
 
             console.log(`[Device] 📡 Fetching initial state for device: ${selectedDeviceId}`);
 
@@ -242,7 +248,7 @@ export function DeviceProvider({ children }) {
         };
 
         fetchInitialState();
-    }, [selectedDeviceId]);
+    }, [selectedDeviceId, isAuthenticated]);
 
     // Get current device data
     const currentDevice = DEVICES.find(d => d.id === selectedDeviceId);
@@ -287,7 +293,7 @@ export function DeviceProvider({ children }) {
                 read: false
             };
 
-            console.log('[Device] 🚨 New alert:', newAlert);
+
 
             // Keep only last 50 alerts
             return [newAlert, ...prev].slice(0, 50);
@@ -625,11 +631,11 @@ export function DeviceProvider({ children }) {
 
     // Register a robot and subscribe to its streams
     const registerRobot = useCallback((deviceId, robotId) => {
-        console.log('[Device] 🤖 Registering robot:', robotId, 'for device:', deviceId);
+
 
         setRobots(prev => {
             if (prev[deviceId]?.[robotId]) {
-                console.log('[Device] ⚠️ Robot already registered:', robotId);
+
                 return prev;
             }
 
@@ -667,88 +673,193 @@ export function DeviceProvider({ children }) {
             const newLat = payload.lat ?? payload.latitude ?? (payload.location?.lat) ?? existingRobot.location?.lat;
             const newLng = payload.lng ?? payload.longitude ?? (payload.location?.lng) ?? existingRobot.location?.lng;
 
-            // Check if robot has reached its destination (task completion logic)
+            // Only log when location actually changes
+            const prevLat = existingRobot.location?.lat;
+            const prevLng = existingRobot.location?.lng;
+            if (newLat != null && newLng != null && (newLat !== prevLat || newLng !== prevLng)) {
+                console.log(`[Stream] 📍 ${robotId} location: lat:${newLat}, lng:${newLng}`);
+            }
+
+            // ===== MULTI-PHASE TASK TRACKING =====
             const currentTask = existingRobot.task;
             let updatedTask = currentTask;
 
-            if (currentTask && currentTask.status !== 'Completed' && currentTask.status !== 'completed') {
-                // Get destination coordinates from task
-                const destLat = currentTask.destination_lat ?? currentTask.dest_lat ?? currentTask.end_lat;
-                const destLng = currentTask.destination_lng ?? currentTask.dest_lng ?? currentTask.end_lng;
+            if (currentTask && currentTask.phase && currentTask.phase !== TASK_PHASES.COMPLETED && currentTask.phase !== TASK_PHASES.FAILED) {
+                // Room names for geofence checking (fuzzy-matched via resolveRoom)
+                const rawSrcRoom = currentTask['initiate location'] || currentTask.source_name || null;
+                const rawDstRoom = currentTask.destination || currentTask.destination_name || null;
+                const srcResolved = resolveRoom(rawSrcRoom);
+                const dstResolved = resolveRoom(rawDstRoom);
+                const srcRoomName = srcResolved?.name ?? null;
+                const dstRoomName = dstResolved?.name ?? null;
 
-                if (destLat != null && destLng != null && newLat != null && newLng != null) {
-                    // Calculate distance between current location and destination
-                    // Using simple Euclidean distance for GPS coordinates (approximate)
-                    const latDiff = Math.abs(newLat - destLat);
-                    const lngDiff = Math.abs(newLng - destLng);
+                // Resolve GPS — fall back to ROOMS center when explicit lat/lng missing
+                const srcCenter = srcResolved?.room.center ?? null;
+                const dstCenter = dstResolved?.room.center ?? null;
+                const srcLat = currentTask.source_lat ?? currentTask.src_lat ?? srcCenter?.lat ?? null;
+                const srcLng = currentTask.source_lng ?? currentTask.src_lng ?? srcCenter?.lng ?? null;
+                const dstLat = currentTask.destination_lat ?? currentTask.dest_lat ?? dstCenter?.lat ?? null;
+                const dstLng = currentTask.destination_lng ?? currentTask.dest_lng ?? dstCenter?.lng ?? null;
+                const phase = currentTask.phase;
 
-                    // Threshold: ~10 meters (approximately 0.0001 degrees)
-                    const ARRIVAL_THRESHOLD = 0.0001;
+                // Helper: check if robot arrived at a target (room geofence OR distance threshold)
+                const hasArrived = (targetLat, targetLng, roomName) => {
+                    if (newLat == null || newLng == null) return false;
+                    // 1. Room geofence check — if the room is known
+                    if (roomName && isInsideRoom(newLat, newLng, roomName)) return true;
+                    // 2. Haversine distance fallback
+                    if (targetLat != null && targetLng != null) {
+                        return haversineDistance(newLat, newLng, targetLat, targetLng) <= ARRIVAL_THRESHOLD_M;
+                    }
+                    return false;
+                };
 
-                    const hasArrived = latDiff <= ARRIVAL_THRESHOLD && lngDiff <= ARRIVAL_THRESHOLD;
+                // --- Phase: EN_ROUTE_TO_SOURCE → check proximity to source ---
+                if (phase === TASK_PHASES.EN_ROUTE_TO_SOURCE && (srcLat != null || srcRoomName) && newLat != null && newLng != null) {
+                    const arrivedAtSource = hasArrived(srcLat, srcLng, srcRoomName);
 
-                    if (hasArrived) {
-                        console.log(`[Device] 🎯 Robot ${robotId} has reached destination! Marking task as Completed.`);
-
+                    if (arrivedAtSource) {
+                        // Arrived at source — start PICKING_UP
                         updatedTask = {
                             ...currentTask,
-                            status: 'Completed',
-                            progress: 100,
-                            completedAt: Date.now()
+                            phase: TASK_PHASES.PICKING_UP,
+                            sourceArrivedAt: Date.now(),
+                            progress: 45
                         };
 
-                        // Fire off API update and notification (async, non-blocking)
-                        (async () => {
-                            try {
-                                // Send task completion status to backend
-                                await updateStateDetails(deviceId, `fleetMS/robots/${robotId}/task`, {
-                                    taskId: currentTask.taskId || currentTask.task_id,
-                                    status: 'Completed',
-                                    completedAt: new Date().toISOString(),
-                                    robotId: robotId
-                                });
-                                console.log(`[Device] ✅ Task completion sent to backend for ${robotId}`);
-
-                                // Notify Analysis page to refresh task history
-                                notifyTaskUpdate();
-                            } catch (err) {
-                                console.error(`[Device] ❌ Failed to send task completion for ${robotId}:`, err);
-                            }
-                        })();
-
-                        // Add success notification
                         addAlert({
-                            type: 'info',
-                            deviceId,
-                            robotId,
-                            message: `✓ Robot ${robotId} completed task: ${currentTask.type || currentTask.task || 'Task'}`,
+                            type: 'info', deviceId, robotId,
+                            message: `📍 ${robotId} arrived at pickup: ${currentTask['initiate location'] || 'source'}`,
                             timestamp: Date.now()
                         });
 
-                        // Clear the completed task after a delay so the UI shows
-                        // "Completed → Ready for Assignment" before resetting
+                        // Auto-advance: PICKING_UP → EN_ROUTE_TO_DESTINATION
                         setTimeout(() => {
-                            setRobots(prevRobots => {
-                                const dRobots = prevRobots[deviceId] || {};
-                                const r = dRobots[robotId];
-                                if (!r) return prevRobots;
-                                // Only clear if the task is still the completed one
-                                if (r.task?.completedAt && r.task?.status === 'Completed') {
-                                    return {
-                                        ...prevRobots,
-                                        [deviceId]: {
-                                            ...dRobots,
-                                            [robotId]: {
-                                                ...r,
-                                                task: null,
-                                                status: { ...r.status, state: 'READY' }
-                                            }
-                                        }
-                                    };
-                                }
-                                return prevRobots;
+                            setRobots(p => {
+                                const r = p[deviceId]?.[robotId];
+                                if (!r?.task || r.task.phase !== TASK_PHASES.PICKING_UP) return p;
+                                addAlert({
+                                    type: 'info', deviceId, robotId,
+                                    message: `🚚 ${robotId} picked up, heading to: ${currentTask.destination || 'destination'}`,
+                                    timestamp: Date.now()
+                                });
+                                return {
+                                    ...p,
+                                    [deviceId]: { ...p[deviceId], [robotId]: { ...r, task: { ...r.task, phase: TASK_PHASES.EN_ROUTE_TO_DESTINATION, pickedUpAt: Date.now(), progress: 50 } } }
+                                };
                             });
-                        }, 8000); // 8s so users see the completion state
+                        }, AUTO_ADVANCE_DELAY_MS);
+
+                    } else {
+                        // Update progress while en route
+                        const newProgress = computePhaseProgress(currentTask, newLat, newLng);
+                        if (newProgress !== currentTask.progress) {
+                            updatedTask = { ...currentTask, progress: newProgress };
+                        }
+                    }
+                }
+
+                // --- Phase: EN_ROUTE_TO_DESTINATION → check proximity to destination ---
+                else if (phase === TASK_PHASES.EN_ROUTE_TO_DESTINATION && (dstLat != null || dstRoomName) && newLat != null && newLng != null) {
+                    const arrivedAtDest = hasArrived(dstLat, dstLng, dstRoomName);
+
+                    if (arrivedAtDest) {
+                        // Arrived at destination — start DELIVERING
+                        updatedTask = {
+                            ...currentTask,
+                            phase: TASK_PHASES.DELIVERING,
+                            destinationArrivedAt: Date.now(),
+                            progress: 92
+                        };
+
+                        addAlert({
+                            type: 'info', deviceId, robotId,
+                            message: `📍 ${robotId} arrived at destination: ${currentTask.destination || 'drop-off'}`,
+                            timestamp: Date.now()
+                        });
+
+                        // Auto-advance: DELIVERING → COMPLETED
+                        setTimeout(() => {
+                            setRobots(p => {
+                                const r = p[deviceId]?.[robotId];
+                                if (!r?.task || r.task.phase !== TASK_PHASES.DELIVERING) return p;
+                                const taskId = r.task.task_id || r.task.taskId || 'unknown';
+
+                                addAlert({
+                                    type: 'info', deviceId, robotId,
+                                    message: `✅ ${robotId} completed delivery ${taskId} (${currentTask['initiate location'] || '?'} → ${currentTask.destination || '?'})`,
+                                    timestamp: Date.now()
+                                });
+
+                                // Send completion to backend
+                                (async () => {
+                                    try {
+                                        await updateStateDetails(deviceId, `fleetMS/robots/${robotId}/task`, {
+                                            task_id: r.task.task_id || r.task.taskId,
+                                            task_type: 'Deliver',
+                                            status: 'Completed',
+                                            phase: TASK_PHASES.COMPLETED,
+                                            progress: 100,
+                                            completedAt: new Date().toISOString(),
+                                            sourceArrivedAt: r.task.sourceArrivedAt ? new Date(r.task.sourceArrivedAt).toISOString() : null,
+                                            pickedUpAt: r.task.pickedUpAt ? new Date(r.task.pickedUpAt).toISOString() : null,
+                                            destinationArrivedAt: new Date().toISOString(),
+                                            robotId
+                                        });
+                                        notifyTaskUpdate();
+                                    } catch (err) {
+                                        console.error(`[Device] ❌ Failed to send completion for ${robotId}:`, err);
+                                    }
+                                })();
+
+                                return {
+                                    ...p,
+                                    [deviceId]: {
+                                        ...p[deviceId],
+                                        [robotId]: {
+                                            ...r,
+                                            task: { ...r.task, phase: TASK_PHASES.COMPLETED, status: 'Completed', progress: 100, completedAt: Date.now() },
+                                            status: { ...r.status, state: 'READY' }
+                                        }
+                                    }
+                                };
+                            });
+
+                            // Clear task after showing completion
+                            setTimeout(() => {
+                                setRobots(p => {
+                                    const r = p[deviceId]?.[robotId];
+                                    if (!r?.task || r.task.phase !== TASK_PHASES.COMPLETED) return p;
+                                    return {
+                                        ...p,
+                                        [deviceId]: { ...p[deviceId], [robotId]: { ...r, task: null, status: { ...r.status, state: 'READY' } } }
+                                    };
+                                });
+                            }, 8000);
+                        }, AUTO_ADVANCE_DELAY_MS);
+
+                    } else {
+                        // Update progress while en route
+                        const newProgress = computePhaseProgress(currentTask, newLat, newLng);
+                        if (newProgress !== currentTask.progress) {
+                            updatedTask = { ...currentTask, progress: newProgress };
+                        }
+                    }
+                }
+
+                // --- PICKING_UP phase — no GPS action needed, auto-timers handle it ---
+            }
+            // Legacy fallback: task without phase system
+            else if (currentTask && !currentTask.phase && currentTask.status !== 'Completed' && currentTask.status !== 'completed') {
+                const legacyDstRoom = currentTask.destination || currentTask.destination_name || null;
+                const legacyDstResolved = resolveRoom(legacyDstRoom);
+                const legacyDstCenter = legacyDstResolved?.room.center ?? null;
+                const dstLat = currentTask.destination_lat ?? currentTask.dest_lat ?? currentTask.end_lat ?? legacyDstCenter?.lat ?? null;
+                const dstLng = currentTask.destination_lng ?? currentTask.dest_lng ?? currentTask.end_lng ?? legacyDstCenter?.lng ?? null;
+                if (dstLat != null && dstLng != null && newLat != null && newLng != null) {
+                    const dist = haversineDistance(newLat, newLng, dstLat, dstLng);
+                    if (dist <= ARRIVAL_THRESHOLD_M) {
+                        updatedTask = { ...currentTask, status: 'Completed', progress: 100, completedAt: Date.now() };
                     }
                 }
             }
@@ -765,9 +876,11 @@ export function DeviceProvider({ children }) {
                             z: payload.z ?? payload.altitude ?? existingRobot.location?.z
                         },
                         task: updatedTask,
-                        status: updatedTask?.status === 'Completed'
+                        status: updatedTask?.phase === TASK_PHASES.COMPLETED
                             ? { ...existingRobot.status, state: 'READY' }
-                            : (payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status),
+                            : updatedTask?.phase && updatedTask.phase !== TASK_PHASES.ASSIGNED
+                                ? { ...existingRobot.status, state: 'ACTIVE' }
+                                : (payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status),
                         heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
                         lastUpdate: Date.now()
                     }
@@ -1002,27 +1115,102 @@ export function DeviceProvider({ children }) {
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
         // Ensure robot is registered
         setRobots(prev => {
-            if (!prev[deviceId]?.[robotId]) {
-                // ... (auto-register logic if needed, but usually strict)
-                return prev;
-            }
-            return prev;
-        });
+            if (!prev[deviceId]?.[robotId]) return prev;
 
-        setRobots(prev => {
-            const currentRobot = prev[deviceId]?.[robotId];
-            if (!currentRobot) return prev; // Should be handled above, but safety check
+            const currentRobot = prev[deviceId][robotId];
 
-            // normalize task data
+            // Normalize task data — always treat as Deliver
             let taskData = payload;
             if (typeof payload === 'string') {
-                taskData = { type: payload, task: payload };
+                taskData = { task_type: 'Deliver' };
             } else if (typeof payload === 'object') {
-                // Ensure 'type' exists for UI compatibility (Dashboard looks for task.type)
                 taskData = {
                     ...payload,
-                    type: payload.task || payload.type || 'Unknown'
+                    task_type: 'Deliver',
+                    task_id: payload.task_id || payload.taskId || null,
                 };
+            }
+
+            // If already completed/cleared, don't overwrite with new assignment data
+            if (taskData.status === 'cleared') {
+                return {
+                    ...prev,
+                    [deviceId]: {
+                        ...prev[deviceId],
+                        [robotId]: { ...currentRobot, task: null, status: { ...currentRobot.status, state: 'READY' }, lastUpdate: Date.now() }
+                    }
+                };
+            }
+
+            // Preserve existing phase data if this is an incremental update (same taskId)
+            const existingTask = currentRobot.task;
+            const isSameTask = existingTask && (
+                (taskData.task_id && taskData.task_id === existingTask.task_id) ||
+                (taskData.taskId && taskData.taskId === existingTask.taskId)
+            );
+
+            // If the incoming payload already has a phase (e.g. from backend), respect it
+            const incomingPhase = taskData.phase;
+            const isCompletedIncoming = taskData.status === 'Completed' || taskData.status === 'completed';
+
+            let phase;
+            if (isCompletedIncoming) {
+                phase = TASK_PHASES.COMPLETED;
+            } else if (incomingPhase && Object.values(TASK_PHASES).includes(incomingPhase)) {
+                phase = incomingPhase;
+            } else if (isSameTask && existingTask.phase) {
+                phase = existingTask.phase;
+            } else {
+                // New task always starts at ASSIGNED (0%) — auto-advance timer moves it forward
+                phase = TASK_PHASES.ASSIGNED;
+            }
+
+            // Capture robot's current position at assignment time (for progress calculation)
+            // Only use if it looks like real GPS (not null/0 defaults)
+            const rawLat = currentRobot.location?.lat;
+            const rawLng = currentRobot.location?.lng;
+            const posIsValid = rawLat != null && rawLng != null && (Math.abs(rawLat) > 1 || Math.abs(rawLng) > 1);
+            const assignedAtLat = isSameTask ? (existingTask.assignedAtLat ?? (posIsValid ? rawLat : null)) : (posIsValid ? rawLat : null);
+            const assignedAtLng = isSameTask ? (existingTask.assignedAtLng ?? (posIsValid ? rawLng : null)) : (posIsValid ? rawLng : null);
+
+            const mergedTask = {
+                ...(isSameTask ? existingTask : {}),
+                ...taskData,
+                phase,
+                assignedAtLat,
+                assignedAtLng,
+                assignedAt: isSameTask ? (existingTask.assignedAt ?? Date.now()) : Date.now(),
+                // Preserve timestamps from existing task
+                sourceArrivedAt: isSameTask ? existingTask.sourceArrivedAt : null,
+                pickedUpAt: isSameTask ? existingTask.pickedUpAt : null,
+                destinationArrivedAt: isSameTask ? existingTask.destinationArrivedAt : null,
+                deliveredAt: isSameTask ? existingTask.deliveredAt : null,
+                completedAt: isCompletedIncoming ? (taskData.completedAt || Date.now()) : (isSameTask ? existingTask.completedAt : null),
+            };
+
+            // Compute initial progress
+            mergedTask.progress = computePhaseProgress(mergedTask, currentRobot.location?.lat, currentRobot.location?.lng);
+
+            // If newly assigned, auto-advance after a tick
+            if (phase === TASK_PHASES.ASSIGNED) {
+                setTimeout(() => {
+                    setRobots(p => {
+                        const r = p[deviceId]?.[robotId];
+                        if (!r?.task || r.task.phase !== TASK_PHASES.ASSIGNED) return p;
+
+                        // Determine if source coords are available (explicit or from room name)
+                        const srcRoom = r.task['initiate location'] || r.task.source_name;
+                        const srcResolved = srcRoom ? resolveRoom(srcRoom) : null;
+                        const hasSrc = (r.task.source_lat ?? r.task.src_lat ?? srcResolved?.room.center?.lat) != null;
+
+                        const nextPhase = hasSrc ? TASK_PHASES.EN_ROUTE_TO_SOURCE : TASK_PHASES.EN_ROUTE_TO_DESTINATION;
+                        const progress = computePhaseProgress({ ...r.task, phase: nextPhase }, r.location?.lat, r.location?.lng);
+                        return {
+                            ...p,
+                            [deviceId]: { ...p[deviceId], [robotId]: { ...r, task: { ...r.task, phase: nextPhase, progress }, lastUpdate: Date.now() } }
+                        };
+                    });
+                }, 2000);
             }
 
             return {
@@ -1031,7 +1219,8 @@ export function DeviceProvider({ children }) {
                     ...prev[deviceId],
                     [robotId]: {
                         ...currentRobot,
-                        task: taskData,
+                        task: mergedTask,
+                        status: { ...currentRobot.status, state: phase === TASK_PHASES.COMPLETED ? 'READY' : 'ACTIVE' },
                         lastUpdate: Date.now()
                     }
                 }
@@ -1239,7 +1428,7 @@ export function DeviceProvider({ children }) {
         );
 
         return () => {
-            console.log('[DeviceContext] 🔌 Disconnecting WebSocket');
+
             client.deactivate();
             setIsConnected(false);
         };
@@ -1262,7 +1451,7 @@ export function DeviceProvider({ children }) {
                 await Promise.all(deviceRobots.map(async (robotId) => {
                     if (cancelled) return;
                     try {
-                        const res = await getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}`, startTime, endTime, '0', '5');
+                        const res = await getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}`, startTime, endTime, '0', '5', { silent: true });
                         if (res?.status === 'Success' && Array.isArray(res.data) && res.data.length > 0) {
                             // Use most recent message
                             const latest = res.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
@@ -1301,6 +1490,43 @@ export function DeviceProvider({ children }) {
         return () => { cancelled = true; clearInterval(id); };
     }, [isAuthenticated, selectedDeviceId, robots, handleRobotTempUpdate, handleRobotBatteryUpdate, handleRobotLocationUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
 
+    // ===== TIMEOUT DETECTION =====
+    // Periodically check if any robot with an active task hasn't received a location update for 5 min → mark FAILED
+    const TASK_TIMEOUT_MS = 5 * 60 * 1000;
+    useEffect(() => {
+        if (!selectedDeviceId) return;
+        const interval = setInterval(() => {
+            setRobots(prev => {
+                const deviceRobots = prev[selectedDeviceId];
+                if (!deviceRobots) return prev;
+                let changed = false;
+                const updated = { ...deviceRobots };
+                Object.entries(deviceRobots).forEach(([rId, robot]) => {
+                    const task = robot?.task;
+                    if (!task?.phase) return;
+                    if (task.phase === TASK_PHASES.COMPLETED || task.phase === TASK_PHASES.FAILED) return;
+                    const lastUpdate = robot.lastUpdate || 0;
+                    if (Date.now() - lastUpdate > TASK_TIMEOUT_MS) {
+                        console.warn(`[Device] ⚠️ Robot ${rId} timed out — no location update for 5 min`);
+                        changed = true;
+                        updated[rId] = {
+                            ...robot,
+                            task: { ...task, phase: TASK_PHASES.FAILED, failedAt: Date.now(), previousPhase: task.phase }
+                        };
+                        addAlert({
+                            type: 'warning', deviceId: selectedDeviceId, robotId: rId,
+                            message: `⚠️ ${rId} delivery timed out during ${PHASE_LABELS[task.phase] || task.phase} — no updates for 5 min`,
+                            timestamp: Date.now()
+                        });
+                    }
+                });
+                if (!changed) return prev;
+                return { ...prev, [selectedDeviceId]: updated };
+            });
+        }, 60000);
+        return () => clearInterval(interval);
+    }, [selectedDeviceId, addAlert]);
+
     // Note: Robot subscriptions removed - all data comes through main STREAM/STATE topics
 
     // Robots are discovered via WebSocket - no mock data
@@ -1309,7 +1535,7 @@ export function DeviceProvider({ children }) {
     const refreshDeviceState = useCallback(async () => {
         if (!selectedDeviceId) return;
 
-        console.log(`[Device] 🔄 Refreshing state for device: ${selectedDeviceId}`);
+
 
         try {
             const response = await getStateDetails(selectedDeviceId);
@@ -1329,12 +1555,15 @@ export function DeviceProvider({ children }) {
                         lastUpdate: Date.now()
                     }
                 }));
-                console.log('[Device] ✅ State refreshed');
+
             }
         } catch (error) {
             console.error('[Device] ❌ Failed to refresh state:', error);
         }
     }, [selectedDeviceId]);
+
+    // Keep ref up-to-date so WebSocket handlers can call it
+    refreshDeviceStateRef.current = refreshDeviceState;
 
     // Optimistic update helper
     const updateRobotTaskLocal = useCallback((robotId, taskPayload) => {
@@ -1350,7 +1579,7 @@ export function DeviceProvider({ children }) {
     const fetchRobotTasks = useCallback(async () => {
         if (!selectedDeviceId) return {};
 
-        console.log(`[Device] 🔄 Fetching robot tasks for device: ${selectedDeviceId}`);
+
 
         const deviceRobots = Object.keys(robots[selectedDeviceId] || {});
         const registryRobots = getRobotsForDevice(selectedDeviceId);
@@ -1359,7 +1588,7 @@ export function DeviceProvider({ children }) {
         const allRobotIds = [...new Set([...deviceRobots, ...registryRobots.map(r => r.id)])];
 
         if (allRobotIds.length === 0) {
-            console.log('[Device] ⚠️ No robots found for task fetch');
+
             return {};
         }
 
@@ -1386,14 +1615,14 @@ export function DeviceProvider({ children }) {
                         fetchedAt: Date.now()
                     };
 
-                    console.log(`[Device] ✅ Fetched task for ${robotId}:`, taskData);
+
 
                     // Also update the robot's task state in context
                     handleRobotTaskUpdate(selectedDeviceId, robotId, taskData);
                 }
             } catch (err) {
                 // Robot might not have a task topic - that's okay
-                console.log(`[Device] ℹ️ No task topic for ${robotId}`);
+
             }
         }));
 
@@ -1402,7 +1631,7 @@ export function DeviceProvider({ children }) {
             [selectedDeviceId]: taskMap
         }));
 
-        console.log(`[Device] ✅ Fetched tasks for ${Object.keys(taskMap).length} robots`);
+
         return taskMap;
     }, [selectedDeviceId, robots, handleRobotTaskUpdate]);
 
@@ -1412,7 +1641,7 @@ export function DeviceProvider({ children }) {
 
         // Small delay to ensure WebSocket is connected and robot registry is populated
         const timeoutId = setTimeout(() => {
-            console.log(`[Device] 🔄 Auto-fetching robot tasks for device: ${selectedDeviceId}`);
+
             // Use an IIFE to call the async function
             (async () => {
                 try {
@@ -1421,7 +1650,7 @@ export function DeviceProvider({ children }) {
                     const allRobotIds = [...new Set([...deviceRobots, ...registryRobots.map(r => r.id)])];
 
                     if (allRobotIds.length === 0) {
-                        console.log('[Device] ⚠️ No robots found for auto task fetch');
+
                         return;
                     }
 
@@ -1446,14 +1675,14 @@ export function DeviceProvider({ children }) {
                                     fetchedAt: Date.now()
                                 };
 
-                                console.log(`[Device] ✅ Auto-fetched task for ${robotId}:`, taskData);
+
 
                                 // Update robot's task state in context
                                 handleRobotTaskUpdate(selectedDeviceId, robotId, taskData);
                             }
                         } catch (err) {
                             // Robot might not have a task topic - that's okay
-                            console.log(`[Device] ℹ️ No task topic for ${robotId} (auto-fetch)`);
+
                         }
                     }));
 
@@ -1462,7 +1691,7 @@ export function DeviceProvider({ children }) {
                         [selectedDeviceId]: taskMap
                     }));
 
-                    console.log(`[Device] ✅ Auto-fetched tasks for ${Object.keys(taskMap).length} robots on init/refresh`);
+
                 } catch (err) {
                     console.error('[Device] ❌ Failed to auto-fetch robot tasks:', err);
                 }
