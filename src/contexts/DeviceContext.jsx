@@ -1,10 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { connectWebSocket } from '../services/webSocketClient';
-import { getStateDetails, updateStateDetails, getTopicStreamData, getTimeRange } from '../services/api';
+import { getStateDetails, updateStateDetails, getTopicStreamData, getTopicStateDetails, getTimeRange } from '../services/api';
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 
 const DeviceContext = createContext(null);
+
+// Helper function to check if a task status represents an active (non-completed) task
+const isActiveTaskStatus = (status) => {
+    if (!status) return false;
+    const s = String(status).toLowerCase();
+    // These statuses mean the task is still active
+    return s === 'assigned' || s === 'pending' || s === 'in progress' || s === 'in_progress' ||
+        s === 'active' || s === 'moving' || s === 'started' || s === 'queued' || s === 'scheduled';
+};
 
 // Available devices
 const DEVICES = [
@@ -48,7 +57,31 @@ const getThresholds = () => {
         const saved = localStorage.getItem('fabrix_settings');
         if (saved) {
             const parsed = JSON.parse(saved);
-            return parsed.thresholds || DEFAULT_THRESHOLDS;
+            // First try the pre-built thresholds object (set by Settings page on save)
+            if (parsed.thresholds) {
+                return { ...DEFAULT_THRESHOLDS, ...parsed.thresholds };
+            }
+            // Fallback: build thresholds from flat Settings structure
+            return {
+                temperature: {
+                    min: parsed.temperature?.min ?? DEFAULT_THRESHOLDS.temperature.min,
+                    max: parsed.temperature?.max ?? DEFAULT_THRESHOLDS.temperature.max,
+                    critical: parsed.temperature?.critical ?? (parsed.temperature?.max != null ? parsed.temperature.max + 4 : DEFAULT_THRESHOLDS.temperature.critical)
+                },
+                humidity: {
+                    min: parsed.humidity?.min ?? DEFAULT_THRESHOLDS.humidity.min,
+                    max: parsed.humidity?.max ?? DEFAULT_THRESHOLDS.humidity.max,
+                    critical: parsed.humidity?.critical ?? (parsed.humidity?.max != null ? parsed.humidity.max + 15 : DEFAULT_THRESHOLDS.humidity.critical)
+                },
+                battery: {
+                    low: parsed.battery?.min ?? DEFAULT_THRESHOLDS.battery.low,
+                    critical: parsed.battery?.critical ?? DEFAULT_THRESHOLDS.battery.critical
+                },
+                pressure: {
+                    min: parsed.pressure?.min ?? DEFAULT_THRESHOLDS.pressure.min,
+                    max: parsed.pressure?.max ?? DEFAULT_THRESHOLDS.pressure.max
+                }
+            };
         }
     } catch (error) {
         console.error('[Device] ❌ Failed to load thresholds:', error);
@@ -133,6 +166,9 @@ export function DeviceProvider({ children }) {
     // Components can watch this to trigger refreshes
     const [taskUpdateVersion, setTaskUpdateVersion] = useState(0);
 
+    // Store fetched robot tasks from API (keyed by robotId)
+    const [fetchedRobotTasks, setFetchedRobotTasks] = useState({});
+
     // Function to notify that a task was updated
     const notifyTaskUpdate = useCallback(() => {
         setTaskUpdateVersion(v => v + 1);
@@ -141,6 +177,8 @@ export function DeviceProvider({ children }) {
 
     // Throttle timestamps for automatic control actions per device
     const autoActionTimestamps = useRef({});
+    // Ref to always hold latest refreshDeviceState for callbacks that can't include it in deps
+    const refreshDeviceStateRef = useRef(null);
 
 
 
@@ -324,8 +362,6 @@ export function DeviceProvider({ children }) {
 
     // Handle device temperature updates
     const handleTemperatureUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 🌡️ Temperature update for', deviceId, ':', payload);
-
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
@@ -453,7 +489,7 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
-                                    if (refreshDeviceState) await refreshDeviceState();
+                                    if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.warn('[AutoControl] Failed to set AC ON', err);
                                 }
@@ -463,7 +499,7 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
-                                    if (refreshDeviceState) await refreshDeviceState();
+                                    if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.warn('[AutoControl] Failed to set AC OFF', err);
                                 }
@@ -479,7 +515,7 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'ACTIVE' });
-                                    if (refreshDeviceState) await refreshDeviceState();
+                                    if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.warn('[AutoControl] Failed to set Air Purifier ACTIVE', err);
                                 }
@@ -488,7 +524,7 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'INACTIVE' });
-                                    if (refreshDeviceState) await refreshDeviceState();
+                                    if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.warn('[AutoControl] Failed to set Air Purifier INACTIVE', err);
                                 }
@@ -504,8 +540,6 @@ export function DeviceProvider({ children }) {
 
     // Handle AC state updates
     const handleACUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] ❄️ AC update for', deviceId, ':', payload);
-
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
@@ -521,8 +555,6 @@ export function DeviceProvider({ children }) {
 
     // Handle device status updates
     const handleDeviceStatusUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 📊 Device status update for', deviceId, ':', payload);
-
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
@@ -551,8 +583,6 @@ export function DeviceProvider({ children }) {
 
     // Handle air purifier state updates
     const handleAirPurifierUpdate = useCallback((deviceId, payload) => {
-        console.log('[Device] 🌬️ Air purifier update for', deviceId, ':', payload);
-
         setDeviceData(prev => ({
             ...prev,
             [deviceId]: {
@@ -568,8 +598,6 @@ export function DeviceProvider({ children }) {
 
     // Handle robot discovery from device stream
     const handleRobotsDiscovery = useCallback((deviceId, payload) => {
-        console.log('[Device] 🤖 Robots discovery for', deviceId, ':', payload);
-
         // Payload could be array of robot IDs or object with robots array
         const robotIds = Array.isArray(payload) ? payload :
             (payload.robots ? payload.robots :
@@ -696,6 +724,31 @@ export function DeviceProvider({ children }) {
                             message: `✓ Robot ${robotId} completed task: ${currentTask.type || currentTask.task || 'Task'}`,
                             timestamp: Date.now()
                         });
+
+                        // Clear the completed task after a delay so the UI shows
+                        // "Completed → Ready for Assignment" before resetting
+                        setTimeout(() => {
+                            setRobots(prevRobots => {
+                                const dRobots = prevRobots[deviceId] || {};
+                                const r = dRobots[robotId];
+                                if (!r) return prevRobots;
+                                // Only clear if the task is still the completed one
+                                if (r.task?.completedAt && r.task?.status === 'Completed') {
+                                    return {
+                                        ...prevRobots,
+                                        [deviceId]: {
+                                            ...dRobots,
+                                            [robotId]: {
+                                                ...r,
+                                                task: null,
+                                                status: { ...r.status, state: 'READY' }
+                                            }
+                                        }
+                                    };
+                                }
+                                return prevRobots;
+                            });
+                        }, 8000); // 8s so users see the completion state
                     }
                 }
             }
@@ -712,7 +765,9 @@ export function DeviceProvider({ children }) {
                             z: payload.z ?? payload.altitude ?? existingRobot.location?.z
                         },
                         task: updatedTask,
-                        status: payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status,
+                        status: updatedTask?.status === 'Completed'
+                            ? { ...existingRobot.status, state: 'READY' }
+                            : (payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status),
                         heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
                         lastUpdate: Date.now()
                     }
@@ -727,8 +782,6 @@ export function DeviceProvider({ children }) {
     // Handle robot temperature updates
     // Handle robot temperature updates
     const handleRobotTempUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log('[Device] 🤖 Robot stream data update:', robotId, payload);
-
         // Unwrap payload if nested (though routeStreamData does this, sometimes structure varies)
         const data = payload.payload || payload;
         const temp = data.temperature ?? data.temp;
@@ -947,8 +1000,6 @@ export function DeviceProvider({ children }) {
 
     // Handle robot task updates (both stream and state)
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
-        console.log(`[Device] 📋 Task update for ${robotId}:`, payload);
-
         // Ensure robot is registered
         setRobots(prev => {
             if (!prev[deviceId]?.[robotId]) {
@@ -991,8 +1042,6 @@ export function DeviceProvider({ children }) {
     // Handle robot online/offline status updates
     // Payload format: {"robot-status": "online" | "offline", "robotId": "R-001"}
     const handleRobotOnlineStatus = useCallback((deviceId, robotId, status) => {
-        console.log(`[Device] 🤖 Robot ${robotId} status: ${status === 'online' ? '🟢' : '🔴'} ${status}`);
-
         setRobots(prev => {
             // Find the robot - might be stored with different ID format
             const deviceRobots = prev[deviceId] || {};
@@ -1055,8 +1104,6 @@ export function DeviceProvider({ children }) {
                 effectivePayload = payload.payload;
             }
 
-            console.log(`[Device] 📨 Received stream data. Topic: ${topicPath}`);
-
             // 1. Device Environment Updates (Strict Topic Check)
             if (topicPath === 'fleetMS/temperature' ||
                 topicPath === 'fleetMS/humidity' ||
@@ -1076,8 +1123,6 @@ export function DeviceProvider({ children }) {
             if (robotMatch) {
                 const robotId = robotMatch[1];
                 const metricFromTopic = robotMatch[2]; // undefined if no suffix
-
-                console.log(`[Device] 🤖 Robot update. ID: ${robotId}, Topic Metric: ${metricFromTopic || 'None (Inferring)'}`);
 
                 // Helper to dispatch based on metric or payload keys
                 const dispatchRobotUpdate = (metric, data) => {
@@ -1300,6 +1345,178 @@ export function DeviceProvider({ children }) {
     const getEnvHistory = useCallback((deviceId) => envHistory[deviceId] || [], [envHistory]);
     const getRobotHistory = useCallback((deviceId, robotId) => (robotHistory[deviceId] && robotHistory[deviceId][robotId]) || [], [robotHistory]);
 
+    // Fetch robot tasks from API using /user/get-state-details/device/topic
+    // This fetches task data for all robots from the topic fleetMS/robots/<robotId>/task
+    const fetchRobotTasks = useCallback(async () => {
+        if (!selectedDeviceId) return {};
+
+        console.log(`[Device] 🔄 Fetching robot tasks for device: ${selectedDeviceId}`);
+
+        const deviceRobots = Object.keys(robots[selectedDeviceId] || {});
+        const registryRobots = getRobotsForDevice(selectedDeviceId);
+
+        // Combine robots from state and registry
+        const allRobotIds = [...new Set([...deviceRobots, ...registryRobots.map(r => r.id)])];
+
+        if (allRobotIds.length === 0) {
+            console.log('[Device] ⚠️ No robots found for task fetch');
+            return {};
+        }
+
+        const taskMap = {};
+
+        await Promise.all(allRobotIds.map(async (robotId) => {
+            try {
+                // Fetch task state from topic: fleetMS/robots/<robotId>/task
+                const response = await getTopicStateDetails(selectedDeviceId, `fleetMS/robots/${robotId}/task`);
+
+                if (response?.status === 'Success' && response.data) {
+                    let taskData = response.data;
+
+                    // Unwrap nested payload if present
+                    if (taskData.payload) {
+                        taskData = typeof taskData.payload === 'string'
+                            ? JSON.parse(taskData.payload)
+                            : taskData.payload;
+                    }
+
+                    taskMap[robotId] = {
+                        robotId,
+                        ...taskData,
+                        fetchedAt: Date.now()
+                    };
+
+                    console.log(`[Device] ✅ Fetched task for ${robotId}:`, taskData);
+
+                    // Also update the robot's task state in context
+                    handleRobotTaskUpdate(selectedDeviceId, robotId, taskData);
+                }
+            } catch (err) {
+                // Robot might not have a task topic - that's okay
+                console.log(`[Device] ℹ️ No task topic for ${robotId}`);
+            }
+        }));
+
+        setFetchedRobotTasks(prev => ({
+            ...prev,
+            [selectedDeviceId]: taskMap
+        }));
+
+        console.log(`[Device] ✅ Fetched tasks for ${Object.keys(taskMap).length} robots`);
+        return taskMap;
+    }, [selectedDeviceId, robots, handleRobotTaskUpdate]);
+
+    // Automatically fetch robot tasks when device selection changes (ensures tasks load on refresh)
+    useEffect(() => {
+        if (!selectedDeviceId || !isAuthenticated) return;
+
+        // Small delay to ensure WebSocket is connected and robot registry is populated
+        const timeoutId = setTimeout(() => {
+            console.log(`[Device] 🔄 Auto-fetching robot tasks for device: ${selectedDeviceId}`);
+            // Use an IIFE to call the async function
+            (async () => {
+                try {
+                    const deviceRobots = Object.keys(robots[selectedDeviceId] || {});
+                    const registryRobots = getRobotsForDevice(selectedDeviceId);
+                    const allRobotIds = [...new Set([...deviceRobots, ...registryRobots.map(r => r.id)])];
+
+                    if (allRobotIds.length === 0) {
+                        console.log('[Device] ⚠️ No robots found for auto task fetch');
+                        return;
+                    }
+
+                    const taskMap = {};
+
+                    await Promise.all(allRobotIds.map(async (robotId) => {
+                        try {
+                            const response = await getTopicStateDetails(selectedDeviceId, `fleetMS/robots/${robotId}/task`);
+
+                            if (response?.status === 'Success' && response.data) {
+                                let taskData = response.data;
+
+                                if (taskData.payload) {
+                                    taskData = typeof taskData.payload === 'string'
+                                        ? JSON.parse(taskData.payload)
+                                        : taskData.payload;
+                                }
+
+                                taskMap[robotId] = {
+                                    robotId,
+                                    ...taskData,
+                                    fetchedAt: Date.now()
+                                };
+
+                                console.log(`[Device] ✅ Auto-fetched task for ${robotId}:`, taskData);
+
+                                // Update robot's task state in context
+                                handleRobotTaskUpdate(selectedDeviceId, robotId, taskData);
+                            }
+                        } catch (err) {
+                            // Robot might not have a task topic - that's okay
+                            console.log(`[Device] ℹ️ No task topic for ${robotId} (auto-fetch)`);
+                        }
+                    }));
+
+                    setFetchedRobotTasks(prev => ({
+                        ...prev,
+                        [selectedDeviceId]: taskMap
+                    }));
+
+                    console.log(`[Device] ✅ Auto-fetched tasks for ${Object.keys(taskMap).length} robots on init/refresh`);
+                } catch (err) {
+                    console.error('[Device] ❌ Failed to auto-fetch robot tasks:', err);
+                }
+            })();
+        }, 500); // 500ms delay to allow robot registry to populate
+
+        return () => clearTimeout(timeoutId);
+    }, [selectedDeviceId, isAuthenticated]); // Intentionally not including robots to avoid infinite loop
+
+    // Check if a robot is busy (has an active/non-completed task)
+    const isRobotBusy = useCallback((robotId) => {
+        // First check the fetched tasks from API
+        const deviceTasks = fetchedRobotTasks[selectedDeviceId] || {};
+        const fetchedTask = deviceTasks[robotId];
+
+        if (fetchedTask) {
+            const status = fetchedTask.status || fetchedTask.state;
+            if (isActiveTaskStatus(status)) {
+                return true;
+            }
+        }
+
+        // Also check the robot's current task state in context
+        const robot = robots[selectedDeviceId]?.[robotId];
+        if (robot?.task) {
+            const taskStatus = robot.task.status || robot.task.state;
+            // Check if task is active (not completed/failed/cancelled)
+            if (isActiveTaskStatus(taskStatus)) {
+                return true;
+            }
+        }
+
+        return false;
+    }, [selectedDeviceId, robots, fetchedRobotTasks]);
+
+    // Get active task for a robot (if any)
+    const getRobotActiveTask = useCallback((robotId) => {
+        // First check fetched tasks from API
+        const deviceTasks = fetchedRobotTasks[selectedDeviceId] || {};
+        const fetchedTask = deviceTasks[robotId];
+
+        if (fetchedTask && isActiveTaskStatus(fetchedTask.status || fetchedTask.state)) {
+            return fetchedTask;
+        }
+
+        // Check robot's current task state in context
+        const robot = robots[selectedDeviceId]?.[robotId];
+        if (robot?.task && isActiveTaskStatus(robot.task.status || robot.task.state)) {
+            return robot.task;
+        }
+
+        return null;
+    }, [selectedDeviceId, robots, fetchedRobotTasks]);
+
     const value = {
         // WebSocket connection state
         isConnected,
@@ -1336,7 +1553,13 @@ export function DeviceProvider({ children }) {
 
         // Task update notification
         taskUpdateVersion,
-        notifyTaskUpdate
+        notifyTaskUpdate,
+
+        // Task management functions
+        fetchRobotTasks,      // Fetch all robot tasks from API
+        isRobotBusy,          // Check if robot has an active task
+        getRobotActiveTask,   // Get robot's current active task
+        fetchedRobotTasks     // Cached fetched tasks by device
     };
 
     return (

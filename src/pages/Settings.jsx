@@ -5,7 +5,10 @@ import {
     CheckCircle,
     ChevronDown,
     Smartphone,
-    Power
+    Power,
+    RefreshCw,
+    AlertCircle,
+    Loader2
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { updateStateDetails } from '../services/api';
@@ -74,13 +77,25 @@ const generateTaskId = () => `task-${Date.now().toString(36)}-${Math.random().to
 function Settings() {
     // 1. Context Access
     // Ensure selectedDeviceId is available from context for API calls
-    const { currentRobots, currentDeviceData, updateRobotTaskLocal, selectedDeviceId, refreshDeviceState, isConnected, notifyTaskUpdate } = useDevice();
+    const {
+        currentRobots,
+        currentDeviceData,
+        updateRobotTaskLocal,
+        selectedDeviceId,
+        refreshDeviceState,
+        isConnected,
+        notifyTaskUpdate,
+        fetchRobotTasks,     // Fetch robot tasks from API
+        isRobotBusy,         // Check if robot has active task
+        getRobotActiveTask   // Get robot's current active task
+    } = useDevice();
 
     // 2. Local State
     const [settings, setSettings] = useState(loadSettings());
     const [deviceSaveMessage, setDeviceSaveMessage] = useState(null);
     const [robotSaveMessage, setRobotSaveMessage] = useState(null);
     const [isMobile, setIsMobile] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // 3. Derived Data
     // Safely extract current environment values from streaming device data
@@ -287,6 +302,35 @@ function Settings() {
         return 'offline';
     };
 
+    // Handle refresh to fetch robot tasks from API
+    const handleRefreshTasks = async () => {
+        setIsRefreshing(true);
+        try {
+            await fetchRobotTasks();
+            setRobotSaveMessage({ type: 'success', text: 'Robot tasks refreshed from server' });
+        } catch (err) {
+            console.error('[Settings] ❌ Failed to refresh robot tasks:', err);
+            setRobotSaveMessage({ type: 'error', text: 'Failed to refresh robot tasks' });
+        } finally {
+            setIsRefreshing(false);
+            setTimeout(() => setRobotSaveMessage(null), 3000);
+        }
+    };
+
+    // Fetch robot tasks only once on initial load (page refresh)
+    // This runs once when the component mounts and device is available
+    const hasFetchedRef = React.useRef(false);
+    useEffect(() => {
+        if (selectedDeviceId && fetchRobotTasks && !hasFetchedRef.current) {
+            hasFetchedRef.current = true;
+            fetchRobotTasks();
+        }
+        // Reset when device changes
+        if (!selectedDeviceId) {
+            hasFetchedRef.current = false;
+        }
+    }, [selectedDeviceId]); // Only depend on selectedDeviceId, not fetchRobotTasks
+
     return (
         <div style={{ padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Device Settings Section */}
@@ -369,7 +413,7 @@ function Settings() {
                     </div>
                 </div>
 
-                {/* Expanded Threshold Cards */}
+                {/* Expanded Threshold Cards - Device + Robot Sensors */}
                 <div className="settings-threshold-grid">
                     {[
                         { title: 'Temperature', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
@@ -391,15 +435,15 @@ function Settings() {
                         }
 
                         return (
-                            <div key={card.title} style={{ background: 'white', borderRadius: '16px', padding: '16px 18px', border: '1px solid #F3F4F6' }}>
-                                <div style={{ borderBottom: '2px solid #F3F4F6', paddingBottom: '8px', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1F2937', margin: 4 }}>{card.title}</h3>
-                                    <p style={{ fontSize: '13px', color: '#6B7280', margin: 0 }}>Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
+                            <div key={card.title} style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
+                                <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
+                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0 }}>{card.title}</h3>
+                                    <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '8px' }}>
                                     {card.fields.map(f => (
                                         <div key={f.k}>
-                                            <label style={{ fontSize: '11px', color: '#9CA3AF', display: 'block', marginBottom: '4px' }}>{f.l}</label>
+                                            <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{f.l}</label>
                                             <input
                                                 type="number"
                                                 step="0.1"
@@ -407,7 +451,7 @@ function Settings() {
                                                 onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value === '' ? '' : Number(e.target.value))}
                                                 style={{
                                                     width: '100%',
-                                                    padding: '10px 12px',
+                                                    padding: '8px 10px',
                                                     background: '#F3F4F6',
                                                     border: 'none',
                                                     borderRadius: '8px',
@@ -421,6 +465,112 @@ function Settings() {
                             </div>
                         );
                     })}
+
+                    {/* Robot Battery Threshold - in same grid */}
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
+                        <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Battery
+                                <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
+                            </h3>
+                            <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Battery levels</p>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <div>
+                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Warning (%)</label>
+                                <input
+                                    type="number"
+                                    value={settings.battery?.min ?? 20}
+                                    onChange={(e) => updateDeviceSetting('battery', 'min', Number(e.target.value))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '600'
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Critical (%)</label>
+                                <input
+                                    type="number"
+                                    value={settings.battery?.critical ?? 10}
+                                    onChange={(e) => updateDeviceSetting('battery', 'critical', Number(e.target.value))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '600'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Robot Temperature Threshold - in same grid */}
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
+                        <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Temperature
+                                <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
+                            </h3>
+                            <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Motor/body temp</p>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <div>
+                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Min (°C)</label>
+                                <input
+                                    type="number"
+                                    value={settings.robotThresholds?.tempMin ?? 15}
+                                    onChange={(e) => setSettings(prev => ({
+                                        ...prev,
+                                        robotThresholds: {
+                                            ...prev.robotThresholds,
+                                            tempMin: Number(e.target.value)
+                                        }
+                                    }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '600'
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Max (°C)</label>
+                                <input
+                                    type="number"
+                                    value={settings.robotThresholds?.tempMax ?? 45}
+                                    onChange={(e) => setSettings(prev => ({
+                                        ...prev,
+                                        robotThresholds: {
+                                            ...prev.robotThresholds,
+                                            tempMax: Number(e.target.value)
+                                        }
+                                    }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        background: '#F3F4F6',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                        fontWeight: '600'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Save Message & Action */}
@@ -469,6 +619,33 @@ function Settings() {
                             ({connectedRobots.length} Robots Online)
                         </span>
                     </h2>
+                    <button
+                        onClick={handleRefreshTasks}
+                        disabled={isRefreshing}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            background: 'white',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '10px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                            opacity: isRefreshing ? 0.7 : 1,
+                            transition: 'all 0.2s'
+                        }}
+                        title="Refresh robot tasks from server"
+                    >
+                        {isRefreshing ? (
+                            <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                            <RefreshCw size={14} />
+                        )}
+                        Refresh
+                    </button>
                 </div>
 
                 {connectedRobots.length === 0 ? (
@@ -485,6 +662,10 @@ function Settings() {
                             const robotNumber = robotId.match(/\d+/)?.[0] || String(index + 1).padStart(2, '0');
                             const displayId = `R-${robotNumber}`;
 
+                            // Check if robot is busy with an active task
+                            const isBusy = isRobotBusy ? isRobotBusy(robotId) : false;
+                            const activeTask = getRobotActiveTask ? getRobotActiveTask(robotId) : null;
+
                             return (
                                 <div
                                     key={robotId}
@@ -500,7 +681,25 @@ function Settings() {
                                     }}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F3F4F6', paddingBottom: '8px' }}>
-                                        <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#1F2937' }}>{displayId}</h3>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#1F2937' }}>{displayId}</h3>
+                                            {isBusy && (
+                                                <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    fontSize: '10px',
+                                                    fontWeight: '600',
+                                                    background: '#DBEAFE',
+                                                    color: '#1D4ED8'
+                                                }}>
+                                                    <AlertCircle size={10} />
+                                                    Active Task
+                                                </span>
+                                            )}
+                                        </div>
                                         <div style={{
                                             width: '10px',
                                             height: '10px',
@@ -511,13 +710,34 @@ function Settings() {
                                         }} title={robot.lastUpdate ? `Last stream: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent stream data'} />
                                     </div>
 
+                                    {/* Show active task info when robot is busy */}
+                                    {isBusy && activeTask && (
+                                        <div style={{
+                                            background: '#FEF3C7',
+                                            borderRadius: '8px',
+                                            padding: '8px 10px',
+                                            border: '1px solid #FDE68A',
+                                            marginBottom: '4px'
+                                        }}>
+                                            <div style={{ fontSize: '11px', color: '#92400E', fontWeight: '600' }}>
+                                                Current: {activeTask.task || activeTask.type || 'Task in progress'}
+                                            </div>
+                                            {activeTask.destination && (
+                                                <div style={{ fontSize: '10px', color: '#B45309', marginTop: '2px' }}>
+                                                    → {typeof activeTask.destination === 'string' ? activeTask.destination : 'Destination'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Mission Task</label>
                                         <div style={{ position: 'relative' }}>
                                             <select
                                                 value={robotSettings.task || ''}
                                                 onChange={(e) => updateRobotSetting(robotId, 'task', e.target.value)}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: 'pointer' }}
+                                                disabled={isBusy}
+                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
                                             >
                                                 {TASK_OPTIONS.map(opt => <option key={opt} value={opt === 'Select Task' ? '' : opt}>{opt}</option>)}
                                             </select>
@@ -531,7 +751,8 @@ function Settings() {
                                             <select
                                                 value={robotSettings.source || ''}
                                                 onChange={(e) => updateRobotSetting(robotId, 'source', e.target.value)}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: 'pointer' }}
+                                                disabled={isBusy}
+                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
                                             >
                                                 {LOCATION_OPTIONS.map(opt => <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>)}
                                             </select>
@@ -545,7 +766,8 @@ function Settings() {
                                             <select
                                                 value={robotSettings.destination || ''}
                                                 onChange={(e) => updateRobotSetting(robotId, 'destination', e.target.value)}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: 'pointer' }}
+                                                disabled={isBusy}
+                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
                                             >
                                                 {LOCATION_OPTIONS.map(opt => <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>)}
                                             </select>
@@ -553,26 +775,21 @@ function Settings() {
                                         </div>
                                     </div>
 
-                                    <div className="robot-stat-grid" style={{ gap: '6px' }}>
-                                        {[
-                                            { icon: <Battery size={12} />, label: 'Min%', key: 'batteryMin', def: '20' },
-                                            { icon: <Thermometer size={12} />, label: 'Min°', key: 'tempMin', def: '20' },
-                                            { icon: <Thermometer size={12} />, label: 'Max°', key: 'tempMax', def: '45' }
-                                        ].map(stat => (
-                                            <div key={stat.key} style={{ background: '#F3F4F6', borderRadius: '8px', padding: '6px 4px', textAlign: 'center' }}>
-                                                <div style={{ fontSize: '9px', color: '#9CA3AF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>{stat.label}</div>
-                                                <input
-                                                    type="text"
-                                                    value={robotSettings[stat.key] || stat.def}
-                                                    onChange={(e) => updateRobotSetting(robotId, stat.key, e.target.value)}
-                                                    style={{ width: '100%', textAlign: 'center', fontSize: '12px', fontWeight: '800', border: 'none', background: 'transparent', color: '#1F2937' }}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
+                                    {/* Assign/Clear buttons directly below Destination */}
                                     <div style={{ display: 'flex', gap: '0', marginTop: 8 }}>
                                         <button
+                                            disabled={isBusy}
                                             onClick={async () => {
+                                                // Check if robot is busy before assigning
+                                                if (isBusy) {
+                                                    setRobotSaveMessage({
+                                                        type: 'error',
+                                                        text: `${displayId} is busy with an active task. Please wait until the current task is completed.`
+                                                    });
+                                                    setTimeout(() => setRobotSaveMessage(null), 4000);
+                                                    return;
+                                                }
+
                                                 // Save settings for this robot only
                                                 const config = settings.robotSettings?.[robotId] || {};
                                                 if (!config || !config.task) {
@@ -595,6 +812,7 @@ function Settings() {
                                                     const payload = {
                                                         robotId: robotId,
                                                         task: config.task,
+                                                        status: 'Assigned', // Mark as assigned/pending
                                                         'initiate location': config.source || 'Unknown',
                                                         destination: config.destination || 'Unknown',
                                                         taskId,
@@ -624,9 +842,20 @@ function Settings() {
                                                     setTimeout(() => setRobotSaveMessage(null), 3500);
                                                 }
                                             }}
-                                            style={{ flex: 1, padding: '10px 12px', background: '#7C3AED', color: '#fff', border: 'none', borderRadius: '8px 0 0 8px', cursor: 'pointer', fontWeight: 700 }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px 12px',
+                                                background: isBusy ? '#9CA3AF' : '#7C3AED',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: '8px 0 0 8px',
+                                                cursor: isBusy ? 'not-allowed' : 'pointer',
+                                                fontWeight: 700,
+                                                opacity: isBusy ? 0.7 : 1
+                                            }}
+                                            title={isBusy ? 'Robot is busy with an active task' : 'Assign task to robot'}
                                         >
-                                            Assign
+                                            {isBusy ? 'Busy' : 'Assign'}
                                         </button>
                                         <button
                                             onClick={() => {

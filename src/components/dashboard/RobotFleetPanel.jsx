@@ -7,7 +7,9 @@ import {
     AlertTriangle,
     CheckCircle,
     Clock,
-    Zap
+    Zap,
+    RefreshCw,
+    Loader2
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
 import { computeRobotHealth, computeTaskCompletion } from '../../utils/telemetryMath';
@@ -145,7 +147,7 @@ function RobotCard({ robot }) {
                             {robot.id.split('-')[1] || robot.id.substring(0, 2)}
                         </span>
                     </div>
-                    
+
                     <div>
                         <h4 className="font-semibold text-primary-700 text-sm">{robot.id}</h4>
                         <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -216,7 +218,7 @@ function RobotCard({ robot }) {
                         <span style={getDotStyle(tempStatus)} title={`Temp status: ${tempStatus}`} />
                     </div>
                     <p className="text-sm font-semibold" style={tempStatus === 'critical' ? { color: '#DC2626' } : { color: '#16A34A' }}>
-                        {(getUserTempOverride(robot.id) ?? robot.environment?.temp) != null ? ( (getUserTempOverride(robot.id) ?? robot.environment?.temp).toFixed(1) ) : '--'}°C
+                        {(getUserTempOverride(robot.id) ?? robot.environment?.temp) != null ? ((getUserTempOverride(robot.id) ?? robot.environment?.temp).toFixed(1)) : '--'}°C
                     </p>
                 </div>
 
@@ -248,7 +250,59 @@ function RobotCard({ robot }) {
                 <div className="mt-0.5 pt-0.5 md:mt-1 md:pt-1 border-t border-gray-100">
                     <div className="flex items-center justify-between text-xs mb-1">
                         <span className="text-gray-500">Current Task</span>
-                        <span className="text-primary-600 font-medium">{robot.task.type || 'In Progress'}</span>
+                        <div className="flex items-center gap-2">
+                            {/* Task Status Badge */}
+                            {(() => {
+                                const status = (robot.task.status || robot.task.state || '').toLowerCase();
+                                let bgColor, textColor, label;
+
+                                if (status === 'assigned' || status === 'allocated') {
+                                    bgColor = '#E0E7FF';
+                                    textColor = '#4F46E5';
+                                    label = '📋 Assigned';
+                                } else if (status === 'completed') {
+                                    bgColor = '#D1FAE5';
+                                    textColor = '#059669';
+                                    label = '✓ Completed';
+                                } else if (status === 'in progress' || status === 'in_progress' || status === 'active' || status === 'moving') {
+                                    bgColor = '#DBEAFE';
+                                    textColor = '#2563EB';
+                                    label = '⟳ In Progress';
+                                } else if (status === 'pending' || status === 'queued' || status === 'scheduled') {
+                                    bgColor = '#FEF3C7';
+                                    textColor = '#D97706';
+                                    label = '◷ Pending';
+                                } else if (status === 'error' || status === 'failed') {
+                                    bgColor = '#FEE2E2';
+                                    textColor = '#DC2626';
+                                    label = '✕ Failed';
+                                } else if (robot.task.task || robot.task.type) {
+                                    // Has task but no recognized status - show as assigned
+                                    bgColor = '#E0E7FF';
+                                    textColor = '#4F46E5';
+                                    label = '📋 Assigned';
+                                } else {
+                                    return null;
+                                }
+
+                                return (
+                                    <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        padding: '2px 6px',
+                                        borderRadius: '10px',
+                                        fontSize: '9px',
+                                        fontWeight: '700',
+                                        background: bgColor,
+                                        color: textColor
+                                    }}>
+                                        {label}
+                                    </span>
+                                );
+                            })()}
+                            <span className="text-primary-600 font-medium">{robot.task.task || robot.task.type || 'Task'}</span>
+                        </div>
                     </div>
                     <div className="progress-bar">
                         <div
@@ -268,9 +322,32 @@ function RobotCard({ robot }) {
 }
 
 function RobotFleetPanel() {
-    const { currentRobots } = useDevice();
+    const { currentRobots, fetchRobotTasks } = useDevice();
+    const [isRefreshing, setIsRefreshing] = React.useState(false);
 
     const robots = Object.values(currentRobots || {});
+
+    // Fetch robot tasks on initial mount to ensure task data is loaded on refresh
+    React.useEffect(() => {
+        if (fetchRobotTasks) {
+            console.log('[RobotFleetPanel] 🔄 Fetching robot tasks on mount');
+            fetchRobotTasks();
+        }
+    }, [fetchRobotTasks]);
+
+    // Handle manual refresh
+    const handleRefresh = async () => {
+        if (!fetchRobotTasks) return;
+        setIsRefreshing(true);
+        try {
+            await fetchRobotTasks();
+            console.log('[RobotFleetPanel] 🔄 Robot tasks refreshed');
+        } catch (err) {
+            console.error('[RobotFleetPanel] ❌ Failed to refresh robot tasks:', err);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
 
     const stats = {
         total: robots.length,
@@ -283,7 +360,21 @@ function RobotFleetPanel() {
         <div className="space-y-1 md:space-y-2">
             {/* Header with Stats */}
             <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Robot Fleet</h3>
+                <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900">Robot Fleet</h3>
+                    <button
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                        title="Refresh robot tasks"
+                    >
+                        {isRefreshing ? (
+                            <Loader2 size={14} className="animate-spin text-primary-600" />
+                        ) : (
+                            <RefreshCw size={14} className="text-gray-500 hover:text-primary-600" />
+                        )}
+                    </button>
+                </div>
                 <div className="flex items-center gap-3">
                     <span className="bg-accent-gold-light text-primary-700 rounded-full px-3 py-1 text-xs font-medium">{robots.length} robot(s) connected</span>
                     <div className="flex items-center gap-3 text-xs">

@@ -8,7 +8,8 @@ import {
     CheckCircle,
     Battery,
     MapPin,
-    Loader2
+    Loader2,
+    RefreshCw
 } from 'lucide-react';
 import { useDevice } from '../contexts/DeviceContext';
 import { toggleAC, setAirPurifier } from '../services/api';
@@ -359,12 +360,25 @@ function FabMap() {
                         </div>
                         <div className="robot-tooltip-row">
                             <span className="label">CURRENT TASK:</span>
-                            <span className="value">{selectedRobot.task?.type || 'None'}</span>
+                            <span className="value">
+                                {selectedRobot.task?.status === 'Completed'
+                                    ? `✓ ${selectedRobot.task.type || 'Task'} (Done)`
+                                    : (selectedRobot.task?.type || (selectedRobot.status?.state === 'READY' ? 'Ready for Assignment' : 'None'))}
+                            </span>
                         </div>
                         {selectedRobot.task?.progress != null && (
                             <div className="robot-tooltip-row">
                                 <span className="label">PROGRESS:</span>
-                                <span className="value" style={getProgressColorStyle(selectedRobot.task.progress)}>{selectedRobot.task.progress}%</span>
+                                <span className="value" style={selectedRobot.task.progress >= 100 ? { color: '#059669' } : getProgressColorStyle(selectedRobot.task.progress)}>
+                                    {selectedRobot.task.progress >= 100 ? '100% ✓' : `${selectedRobot.task.progress}%`}
+                                </span>
+                            </div>
+                        )}
+                        {/* Show ready-for-assignment indicator when no active task */}
+                        {!selectedRobot.task && selectedRobot.status?.state === 'READY' && (
+                            <div className="robot-tooltip-row">
+                                <span className="label">AVAILABILITY:</span>
+                                <span className="value" style={{ color: '#059669', fontWeight: 700 }}>✅ Ready</span>
                             </div>
                         )}
                     </div>
@@ -678,13 +692,39 @@ function ManualModeNotice() {
 
 // Robot Details Section
 function RobotDetails() {
-    const { currentRobots } = useDevice();
+    const { currentRobots, fetchRobotTasks } = useDevice();
     const robots = Object.values(currentRobots || {});
+    const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+    // Handle refresh to fetch robot tasks from API
+    const handleRefresh = async () => {
+        if (!fetchRobotTasks) return;
+        setIsRefreshing(true);
+        try {
+            await fetchRobotTasks();
+            console.log('[Dashboard] 🔄 Robot tasks refreshed');
+        } catch (err) {
+            console.error('[Dashboard] ❌ Failed to refresh robot tasks:', err);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
+    // Fetch robot tasks on initial mount (only once)
+    const hasFetchedRef = React.useRef(false);
+    React.useEffect(() => {
+        if (fetchRobotTasks && !hasFetchedRef.current) {
+            hasFetchedRef.current = true;
+            fetchRobotTasks();
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const getStatusClass = (robot) => {
         // Prefer severity provided by DeviceContext
         const sev = robot.severity;
         if (robot.status?.state === 'OFFLINE') return 'offline';
+        // Task just completed — show green "online" status
+        if (robot.task?.status === 'Completed' || robot.status?.state === 'READY') return 'online';
         if (sev) {
             if (sev.battery === 'critical' || sev.temp === 'critical') return 'critical';
             if (sev.battery === 'warning' || sev.temp === 'warning') return 'warning';
@@ -712,21 +752,46 @@ function RobotDetails() {
     };
 
     // Get task status badge styling
-    const getTaskStatusBadge = (task) => {
+    const getTaskStatusBadge = (task, robot) => {
+        // No task and robot is READY → show ready-for-assignment badge
+        if (!task && robot?.status?.state === 'READY') {
+            return (
+                <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '3px 8px',
+                    borderRadius: '12px',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    background: '#ECFDF5',
+                    color: '#047857',
+                    marginTop: '4px',
+                    border: '1px solid #A7F3D0'
+                }}>
+                    ✅ Ready for Assignment
+                </span>
+            );
+        }
+
         if (!task) return null;
 
-        const status = (task.status || '').toLowerCase();
+        const status = (task.status || task.state || '').toLowerCase();
         let bgColor, textColor, label;
 
-        if (status === 'completed') {
+        if (status === 'assigned' || status === 'allocated') {
+            bgColor = '#E0E7FF';
+            textColor = '#4F46E5';
+            label = '📋 Assigned';
+        } else if (status === 'completed') {
             bgColor = '#D1FAE5';
             textColor = '#059669';
-            label = '✓ Completed';
+            label = '✓ Completed — Ready for Assignment';
         } else if (status === 'in progress' || status === 'in_progress' || status === 'active' || status === 'moving') {
             bgColor = '#DBEAFE';
             textColor = '#2563EB';
             label = '⟳ In Progress';
-        } else if (status === 'pending') {
+        } else if (status === 'pending' || status === 'queued' || status === 'scheduled') {
             bgColor = '#FEF3C7';
             textColor = '#D97706';
             label = '◷ Pending';
@@ -734,6 +799,11 @@ function RobotDetails() {
             bgColor = '#FEE2E2';
             textColor = '#DC2626';
             label = '✕ Failed';
+        } else if (task.task || task.type) {
+            // Has task but no recognized status - show as assigned
+            bgColor = '#E0E7FF';
+            textColor = '#4F46E5';
+            label = '📋 Assigned';
         } else {
             return null;
         }
@@ -773,9 +843,38 @@ function RobotDetails() {
 
     return (
         <div className="robot-details-section">
-            <div className="robot-details-header">
-                <h2 className="robot-details-title">Robot details</h2>
-                <span className="robot-details-count">{robots.length} robot(s) connected</span>
+            <div className="robot-details-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h2 className="robot-details-title">Robot details</h2>
+                    <span className="robot-details-count">{robots.length} robot(s) connected</span>
+                </div>
+                <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        background: 'white',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                        opacity: isRefreshing ? 0.7 : 1,
+                        transition: 'all 0.15s'
+                    }}
+                    title="Refresh robot tasks from server"
+                >
+                    {isRefreshing ? (
+                        <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                        <RefreshCw size={12} />
+                    )}
+                    Refresh
+                </button>
             </div>
 
             <div className="robot-cards-grid">
@@ -789,10 +888,17 @@ function RobotDetails() {
                             <Bot size={32} />
                         </div>
                         <div className="robot-card-task">
-                            TASK: {robot.task?.task || robot.task?.type || '--'}
+                            {robot.task?.status === 'Completed'
+                                ? <span style={{ color: '#059669' }}>✓ {robot.task.type || 'Task'} — Done</span>
+                                : robot.task
+                                    ? <>TASK: {robot.task.task || robot.task.type || '--'}</>
+                                    : robot.status?.state === 'READY'
+                                        ? <span style={{ color: '#047857' }}>Ready for Assignment</span>
+                                        : 'TASK: --'
+                            }
                         </div>
                         {/* Task Status Badge */}
-                        {getTaskStatusBadge(robot.task)}
+                        {getTaskStatusBadge(robot.task, robot)}
                         <div className="robot-card-stats">
                             <div className={`robot-stat`}>
                                 <Battery size={14} />

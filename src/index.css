@@ -1631,12 +1631,24 @@ textarea {
 /* Settings page grids - stack vertically on mobile */
 .settings-threshold-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
   margin-bottom: 12px;
 }
 
+@media (max-width: 1200px) {
+  .settings-threshold-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
+  .settings-threshold-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
   .settings-threshold-grid {
     grid-template-columns: 1fr;
   }

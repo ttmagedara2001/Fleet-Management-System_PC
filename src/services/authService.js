@@ -42,9 +42,6 @@ export async function login() {
   }
 }
 
-// Immediately perform auto-login on module load
-export const autoLoginPromise = login();
-
 // No-op for getToken/clearTokens: all auth is now cookie-based
 export function getToken() {
   return null;
