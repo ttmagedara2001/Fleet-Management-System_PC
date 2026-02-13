@@ -1,4 +1,11 @@
-import React from 'react';
+/**
+ * AlertsPanel — Displays active critical and warning alerts.
+ *
+ * Renders a scrollable list with dismiss and clear-all actions.
+ * Alerts are sourced from the DeviceContext.
+ *
+ * @module AlertsPanel
+ */
 import { AlertTriangle, Bell, X, CheckCircle } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
 
@@ -56,7 +63,7 @@ function AlertsPanel() {
                                 <div className="flex items-start gap-2">
                                     <AlertTriangle
                                         size={16}
-                                        className={`mt-0.5 flex-shrink-0 ${alert.type === 'critical' ? 'text-red-500' : 'text-green-500'}`}
+                                        className={`mt-0.5 flex-shrink-0 ${alert.type === 'critical' ? 'text-red-500' : 'text-amber-500'}`}
                                     />
                                     <div>
                                         <p className="text-sm font-medium text-gray-900">{alert.message}</p>
@@ -97,7 +104,7 @@ function AlertsPanel() {
                             </span>
                         )}
                         {warningAlerts.length > 0 && (
-                            <span className="text-green-600 font-medium">
+                            <span className="text-amber-600 font-medium">
                                 {warningAlerts.length} Warning
                             </span>
                         )}

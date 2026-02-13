@@ -1,4 +1,10 @@
-import React from 'react';
+/**
+ * @module RobotFleetPanel
+ * @description Displays the robot fleet grid with per-robot health cards.
+ * Each card shows battery level, temperature, load, position, task phase,
+ * connection status, and collision alerts in real time.
+ */
+import { useState, useEffect } from 'react';
 import {
     Battery,
     Thermometer,
@@ -13,7 +19,7 @@ import {
     ShieldAlert
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
-import { computeRobotHealth, PHASE_LABELS, PHASE_COLORS, TASK_PHASES } from '../../utils/telemetryMath';
+import { PHASE_LABELS, PHASE_COLORS } from '../../utils/telemetryMath';
 import {
     getRobotTempStatus,
     getBatteryStatus,
@@ -69,8 +75,6 @@ function RobotCard({ robot }) {
 
     const batteryStatus = health.status;
     const tempStatus = getTempStatus();
-
-    const batterySeverity = health.status;
 
     const getDotStyle = (severity) => {
         switch (severity) {
@@ -168,7 +172,7 @@ function RobotCard({ robot }) {
                     <div className="flex items-center gap-1.5">
                         <Battery size={14} className="text-primary-600" />
                         <span className="text-xs text-gray-500">Battery</span>
-                        <span style={getDotStyle(batterySeverity)} title={`Battery: ${health.label}`} />
+                        <span style={getDotStyle(batteryStatus)} title={`Battery: ${health.label}`} />
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex-1 progress-bar">
@@ -284,14 +288,13 @@ function RobotCard({ robot }) {
 
 function RobotFleetPanel() {
     const { currentRobots, fetchRobotTasks } = useDevice();
-    const [isRefreshing, setIsRefreshing] = React.useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const robots = Object.values(currentRobots || {});
 
     // Fetch robot tasks on initial mount to ensure task data is loaded on refresh
-    React.useEffect(() => {
+    useEffect(() => {
         if (fetchRobotTasks) {
-            console.log('[RobotFleetPanel] 🔄 Fetching robot tasks on mount');
             fetchRobotTasks();
         }
     }, [fetchRobotTasks]);
@@ -302,9 +305,8 @@ function RobotFleetPanel() {
         setIsRefreshing(true);
         try {
             await fetchRobotTasks();
-            console.log('[RobotFleetPanel] 🔄 Robot tasks refreshed');
         } catch (err) {
-            console.error('[RobotFleetPanel] ❌ Failed to refresh robot tasks:', err);
+            console.error('[RobotFleetPanel] Failed to refresh robot tasks:', err);
         } finally {
             setIsRefreshing(false);
         }

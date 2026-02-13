@@ -1,4 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+/**
+ * @module Header
+ * @description Top-level application header with device selector, connection
+ * status indicators, notification bell, live clock, and mobile menu toggle.
+ */
+import { useState, useRef, useEffect } from 'react';
 import { Wifi, Radio, Server, Bell, Cpu, Menu, X, Check, Trash2, CheckCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDevice } from '../../contexts/DeviceContext';
@@ -12,7 +17,6 @@ function Header({ onMenuToggle, sidebarOpen }) {
     const notifRef = useRef(null);
     const bellRef = useRef(null);
     const [isMobile, setIsMobile] = useState(false);
-    const [isPortrait, setIsPortrait] = useState(false);
     const [now, setNow] = useState(new Date());
 
     // Clock timer
@@ -39,7 +43,6 @@ function Header({ onMenuToggle, sidebarOpen }) {
     useEffect(() => {
         function onResize() {
             setIsMobile(window.innerWidth <= 768);
-            setIsPortrait(window.innerHeight > window.innerWidth);
         }
         onResize();
         window.addEventListener('resize', onResize);

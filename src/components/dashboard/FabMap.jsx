@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+/**
+ * @module FabMap
+ * @description Interactive SVG map of the fabrication floor showing robot positions,
+ * zone outlines, task routes, and connection status in real time.
+ * Supports desktop full-map and mobile compact views.
+ */
+import { useState, useEffect, useMemo } from 'react';
 import { useDevice } from '../../contexts/DeviceContext';
 import { gpsToPercent, ROOM_CENTERS, resolveRoom } from '../../utils/telemetryMath';
 
@@ -38,14 +44,6 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
         if (battery > 60) return 'green';
         if (battery > 30) return 'primary';
         return 'red';
-    };
-
-    const getStatusColor = () => {
-        const state = robot.status?.state;
-        if (state === 'MOVING' || state === 'ACTIVE') return 'bg-green-500';
-        if (state === 'CHARGING') return 'bg-green-500';
-        if (state === 'ERROR' || state === 'STOPPED') return 'bg-red-500';
-        return 'bg-gray-400';
     };
 
     // Convert GPS lat/lng to SVG pixel coordinates via gpsToPercent
@@ -194,20 +192,6 @@ function FabMap() {
 
     const selectedRobot = selectedRobotId ? currentRobots[selectedRobotId] : null;
 
-    // Structured console logging for debugging: summary when robot data or selection changes
-    useEffect(() => {
-        const total = robots.length;
-        const missingLocation = robots.filter(r => !r.location).length;
-        const lowBattery = robots.filter(r => (r.status?.battery ?? 100) < 20).length;
-        const errorCount = robots.filter(r => ['ERROR', 'STOPPED'].includes(r.status?.state)).length;
-
-        console.groupCollapsed(`[FabMap] Snapshot — ${new Date().toISOString()}`);
-        console.info('Summary:', { total, selected: selectedRobotId ?? 'none', map: `${mapDimensions.width}x${mapDimensions.height}` });
-        console.info('Issues:', { missingLocation, lowBattery, errorCount });
-        console.debug('Robot IDs:', robots.map(r => r.id));
-        console.groupEnd();
-    }, [robots.length, selectedRobotId, mapDimensions.width, mapDimensions.height]);
-
     useEffect(() => {
         function updateDims() {
             setIsMobile(window.innerWidth <= 768);
@@ -268,7 +252,7 @@ function FabMap() {
                     ))}
 
                     {/* robot marker */}
-                    {robot && (
+                    {robot && robotX != null && robotY != null && (
                         <g>
                             <circle
                                 cx={robotX * scaleX}

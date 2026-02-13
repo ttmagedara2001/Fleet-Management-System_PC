@@ -7,7 +7,7 @@
  * HTTP-only cookies (refresh token) are managed by the browser.
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { login, getToken, clearTokens } from '../services/authService';
 
 const AuthContext = createContext(null);
@@ -17,9 +17,8 @@ export function AuthProvider({ children }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Perform login function (can be called manually for retry)
+    /** Perform login — can be called manually for retry. */
     const performLogin = async () => {
-        console.log('🔐 Performing login...');
         setIsLoading(true);
         setError(null);
 
@@ -28,11 +27,10 @@ export function AuthProvider({ children }) {
             if (success) {
                 setIsAuthenticated(true);
                 setError(null);
-                console.log('✅ Login successful!');
                 return success;
             }
         } catch (err) {
-            console.error('❌ Login failed:', err.message);
+            console.error('[Auth] Login failed:', err.message);
             setError(err.message);
             throw err;
         } finally {
@@ -40,15 +38,9 @@ export function AuthProvider({ children }) {
         }
     };
 
-    // Auto-login on mount
+    // Auto-login on mount — always fetch a fresh JWT + cookies
     useEffect(() => {
         async function autoLogin() {
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('🚀 APP STARTED - Initiating auto-login...');
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-            // Always do a fresh login to get a fresh JWT + cookies
-            console.log('📭 Performing fresh login...');
             try {
                 const success = await login();
                 if (success) {
@@ -56,7 +48,7 @@ export function AuthProvider({ children }) {
                     setError(null);
                 }
             } catch (err) {
-                console.error('❌ Auto-login failed:', err.message);
+                console.error('[Auth] Auto-login failed:', err.message);
                 setError(err.message);
             } finally {
                 setIsLoading(false);
@@ -70,7 +62,6 @@ export function AuthProvider({ children }) {
         clearTokens();
         setIsAuthenticated(false);
         setError(null);
-        console.log('👋 Logged out');
     };
 
     const value = {

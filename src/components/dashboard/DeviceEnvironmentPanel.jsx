@@ -1,4 +1,11 @@
-import React from 'react';
+/**
+ * DeviceEnvironmentPanel — Ambient environment metrics display.
+ *
+ * Shows temperature, humidity, pressure, and device state (AC, purifier,
+ * gateway health) with color-coded severity indicators.
+ *
+ * @module DeviceEnvironmentPanel
+ */
 import {
     Thermometer,
     Droplets,
@@ -33,19 +40,12 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
         }
     };
 
-    const getValueTextColor = () => {
-        switch (status) {
-            case 'warning': return 'text-primary-600';
-            case 'critical': return 'text-red-600';
-            default: return 'text-green-600';
-        }
-    };
-
+    /** Returns inline color style for the metric value. */
     const getValueColorStyle = () => {
         switch (status) {
-            case 'warning': return { color: '#7C3AED' }; // primary purple
-            case 'critical': return { color: '#DC2626' }; // red-600
-            default: return { color: '#16A34A' }; // green-600
+            case 'warning': return { color: '#7C3AED' };
+            case 'critical': return { color: '#DC2626' };
+            default: return { color: '#16A34A' };
         }
     };
 
@@ -63,8 +63,8 @@ function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }
                 <p className="text-sm text-gray-500">{label}</p>
                 <div className="flex items-baseline gap-1 mt-1">
                     <span
-                        className={`text-2xl font-bold ${value == null || value === '--' ? 'text-gray-900' : getValueTextColor()}`}
-                        style={value == null || value === '--' ? {} : getValueColorStyle()}
+                        className="text-2xl font-bold"
+                        style={value == null || value === '--' ? { color: '#111827' } : getValueColorStyle()}
                     >
                         {value ?? '--'}
                     </span>

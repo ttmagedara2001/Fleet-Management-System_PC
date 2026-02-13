@@ -1,4 +1,10 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * @module Settings
+ * @description Settings page for device thresholds, system mode (Manual/Auto),
+ * and robot task allocation. Persists settings to localStorage and
+ * syncs task assignments to the backend via the State API.
+ */
+import { useState, useEffect, useRef } from 'react';
 import {
     Thermometer,
     Battery,
@@ -126,7 +132,7 @@ const loadSettings = () => {
             };
         }
     } catch (error) {
-        console.error('[Settings] ❌ Failed to load settings:', error);
+        console.error('[Settings] Failed to load settings:', error);
     }
     return DEFAULT_SETTINGS;
 };
@@ -137,7 +143,7 @@ const saveSettingsToStorage = (settings) => {
         localStorage.setItem('fabrix_settings', JSON.stringify(settings));
         return true;
     } catch (error) {
-        console.error('[Settings] ❌ Failed to save settings:', error);
+        console.error('[Settings] Failed to save settings:', error);
         return false;
     }
 };
@@ -302,70 +308,6 @@ function Settings() {
         setTimeout(() => setDeviceSaveMessage(null), 3000);
     };
 
-    // Save Robot Fleet Settings (API Sync)
-    const handleSaveRobotSettings = async () => {
-        // Save to local storage first
-        saveSettingsToStorage(settings);
-
-        if (!selectedDeviceId) {
-            setRobotSaveMessage({ type: 'error', text: 'No device selected for sync.' });
-            return;
-        }
-
-        try {
-            // Send updates to API for each configured robot
-            const updates = Object.entries(settings.robotSettings || {}).map(async ([robotId, config]) => {
-                // Only send if source and destination are selected
-                if (!config.source || config.source === 'Select' || !config.destination || config.destination === 'Select') return;
-
-                // Topic: fleetMS/robots/<RobotID>/task
-                const topic = `fleetMS/robots/${robotId}/task`;
-
-                // Payload structure
-                const srcCoords = getLocationCoordinates(config.source);
-                const dstCoords = getLocationCoordinates(config.destination);
-
-                const taskId = generateTaskId();
-
-                const payload = {
-                    robotId: robotId,
-                    task_type: 'Deliver',
-                    task_id: taskId,
-                    assignedAt: new Date().toISOString(),
-                    'initiate location': config.source || 'Unknown',
-                    destination: config.destination || 'Unknown',
-                    // Include lat/lng when available so downstream systems can route precisely
-                    source_lat: srcCoords?.lat ?? null,
-                    source_lng: srcCoords?.lng ?? null,
-                    destination_lat: dstCoords?.lat ?? null,
-                    destination_lng: dstCoords?.lng ?? null
-                };
-
-                // Optimistic update in context
-                if (updateRobotTaskLocal) {
-                    updateRobotTaskLocal(robotId, payload);
-                }
-
-                console.log(`[Settings] 🚀 Sending task update for ${robotId}:`, payload);
-
-                // Call API Service
-                return updateStateDetails(selectedDeviceId, topic, payload);
-            });
-
-            await Promise.all(updates);
-
-            // Notify other components (like Analysis) that tasks were updated
-            if (notifyTaskUpdate) notifyTaskUpdate();
-
-            setRobotSaveMessage({ type: 'success', text: 'Robot fleet settings saved & synced!' });
-        } catch (error) {
-            console.error('[Settings] ❌ Failed to sync robot settings:', error);
-            setRobotSaveMessage({ type: 'error', text: 'Saved locally, but failed to sync online.' });
-        }
-
-        setTimeout(() => setRobotSaveMessage(null), 5000);
-    };
-
     // Helper: Get robot status
     const getRobotStatus = (robot) => {
         const robotStatus = robot?.['robot-status'] || robot?.robotStatus;
@@ -387,7 +329,7 @@ function Settings() {
             await fetchRobotTasks();
             setRobotSaveMessage({ type: 'success', text: 'Robot tasks refreshed from server' });
         } catch (err) {
-            console.error('[Settings] ❌ Failed to refresh robot tasks:', err);
+            console.error('[Settings] Failed to refresh robot tasks:', err);
             setRobotSaveMessage({ type: 'error', text: 'Failed to refresh robot tasks' });
         } finally {
             setIsRefreshing(false);
@@ -397,7 +339,7 @@ function Settings() {
 
     // Fetch robot tasks only once on initial load (page refresh)
     // This runs once when the component mounts and device is available
-    const hasFetchedRef = React.useRef(false);
+    const hasFetchedRef = useRef(false);
     useEffect(() => {
         if (selectedDeviceId && fetchRobotTasks && !hasFetchedRef.current) {
             hasFetchedRef.current = true;
@@ -458,12 +400,12 @@ function Settings() {
                                     try {
                                         if (refreshDeviceState) await refreshDeviceState();
                                     } catch (err) {
-                                        console.warn('[Settings] ⚠️ Failed to refresh device state after mode update', err);
+                                        console.warn('[Settings] Failed to refresh device state after mode update', err);
                                     }
 
                                     setDeviceSaveMessage({ type: 'success', text: `System mode set to ${newMode}` });
                                 } catch (err) {
-                                    console.error('[Settings] ❌ Failed to update system mode:', err);
+                                    console.error('[Settings] Failed to update system mode:', err);
                                     // Revert optimistic change on failure
                                     updateDeviceSetting('systemMode', null, prevMode);
                                     setDeviceSaveMessage({ type: 'error', text: 'Failed to update system mode' });
@@ -968,7 +910,7 @@ function Settings() {
 
                                                     setRobotSaveMessage({ type: 'success', text: `Saved task for ${robotId}` });
                                                 } catch (err) {
-                                                    console.error('[Settings] ❌ Failed to save robot setting:', err);
+                                                    console.error('[Settings] Failed to save robot setting:', err);
                                                     setRobotSaveMessage({ type: 'error', text: `Failed to sync ${robotId}` });
                                                 } finally {
                                                     setTimeout(() => setRobotSaveMessage(null), 3500);

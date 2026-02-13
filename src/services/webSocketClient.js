@@ -1,17 +1,18 @@
-/* ======================================================
-   WEBSOCKET CONNECTION (JWT + Cookie Auth)
-
-   Two connection strategies (in priority order):
-     1. wss://<host>/ws              – cookies are sent automatically
-     2. wss://<host>/ws?token=<jwt>  – fallback if cookies are blocked
-
-   IMPORTANT: The WebSocket must only be initialised AFTER
-   /get-token has been called at least once (so the server
-   has issued cookies / the JWT is available).
-====================================================== */
+/**
+ * WebSocket Client — STOMP over WebSocket (JWT + Cookie Auth)
+ *
+ * Connection strategies (in priority order):
+ *   1. wss://<host>/ws              – cookies sent automatically
+ *   2. wss://<host>/ws?token=<jwt>  – fallback when cookies are blocked
+ *
+ * Must be initialised AFTER /get-token has been called at least once.
+ *
+ * @module webSocketClient
+ */
 import { Client } from "@stomp/stompjs";
 import { getToken } from "./authService";
 
+/** WebSocket broker endpoint from environment config. */
 const WS_URL = import.meta.env.VITE_WS_URL;
 
 /**
@@ -47,14 +48,11 @@ export function connectWebSocket(
   onDisconnected,
 ) {
   if (!deviceId) {
-    console.error("❌ connectWebSocket: No deviceId provided");
+    console.error("[WS] connectWebSocket called without deviceId");
     return null;
   }
 
   const brokerURL = buildBrokerURL();
-  console.log(
-    `[WS] 🔌 Initializing WebSocket connection to ${brokerURL} for device: ${deviceId}`,
-  );
 
   const client = new Client({
     brokerURL,
@@ -67,34 +65,24 @@ export function connectWebSocket(
       client.brokerURL = buildBrokerURL();
     },
 
-    onConnect: (frame) => {
-      console.log("[WS] ✅ Connected to Broker");
-
-      // 🔔 Subscribe to Stream Topic
-      console.log(`[WS] 🔔 Subscribing to /topic/stream/${deviceId}`);
+    onConnect: () => {
+      // Subscribe to real-time stream topic
       client.subscribe(`/topic/stream/${deviceId}`, (message) => {
-        if (message.body) {
-          try {
-            const body = JSON.parse(message.body);
-            console.log("[WS] 📨 Stream:", body);
-            if (onStream) onStream(body);
-          } catch (e) {
-            console.error("[WS] ❌ Error parsing stream JSON:", e);
-          }
+        if (!message.body) return;
+        try {
+          if (onStream) onStream(JSON.parse(message.body));
+        } catch (e) {
+          console.error("[WS] Failed to parse stream message", e);
         }
       });
 
-      // 🔔 Subscribe to State Topic
-      console.log(`[WS] 🔔 Subscribing to /topic/state/${deviceId}`);
+      // Subscribe to device state topic
       client.subscribe(`/topic/state/${deviceId}`, (message) => {
-        if (message.body) {
-          try {
-            const body = JSON.parse(message.body);
-            console.log("[WS] 📊 State update:", body);
-            if (onState) onState(body);
-          } catch (e) {
-            console.error("[WS] ❌ Error parsing state JSON:", e);
-          }
+        if (!message.body) return;
+        try {
+          if (onState) onState(JSON.parse(message.body));
+        } catch (e) {
+          console.error("[WS] Failed to parse state message", e);
         }
       });
 
@@ -102,20 +90,15 @@ export function connectWebSocket(
     },
 
     onStompError: (frame) => {
-      console.error(
-        "[WS] ❌ Broker reported error: " + frame.headers["message"],
-      );
-      console.error("[WS] Additional details: " + frame.body);
+      console.error("[WS] Broker error:", frame.headers["message"]);
       if (onDisconnected) onDisconnected();
     },
 
-    onWebSocketError: (event) => {
-      console.error("[WS] 🚫 WebSocket connection error", event);
+    onWebSocketError: () => {
       if (onDisconnected) onDisconnected();
     },
 
-    onWebSocketClose: (event) => {
-      console.warn("[WS] 🔻 Connection closed", event);
+    onWebSocketClose: () => {
       if (onDisconnected) onDisconnected();
     },
 
@@ -127,7 +110,7 @@ export function connectWebSocket(
   try {
     client.activate();
   } catch (err) {
-    console.error("[WS] 💥 Critical error activating client:", err);
+    console.error("[WS] Failed to activate client:", err);
   }
 
   return client;

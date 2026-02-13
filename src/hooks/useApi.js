@@ -11,7 +11,6 @@ import { useCallback } from "react";
 import api, {
   getTopicStreamData as getStreamData,
   getDeviceStateDetails as getStateDetails,
-  updateStateDetails as updateState,
   updateStateDetails,
 } from "../services/api";
 import { generateTaskId } from "../utils/telemetryMath";
@@ -22,19 +21,10 @@ export function useApi() {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Get device stream data (all topics)
+   * Fetch device stream data (all topics).
    */
   const getDeviceStreamData = useCallback(
     async (deviceId, startTime, endTime, pagination = 0, pageSize = 10) => {
-      console.log("[API Hook] 📊 Fetching device stream data...");
-      console.log("[API Hook] 📋 Params:", {
-        deviceId,
-        startTime,
-        endTime,
-        pagination,
-        pageSize,
-      });
-
       try {
         const response = await api.post("/get-stream-data/device", {
           deviceId,
@@ -45,10 +35,7 @@ export function useApi() {
         });
         return response.data;
       } catch (error) {
-        console.error(
-          "[API Hook] ❌ getDeviceStreamData failed:",
-          error.message,
-        );
+        console.error("[API] getDeviceStreamData failed:", error.message);
         throw error;
       }
     },
@@ -56,7 +43,7 @@ export function useApi() {
   );
 
   /**
-   * Get topic-specific stream data
+   * Fetch topic-specific stream data.
    */
   const getTopicStreamData = useCallback(
     async (
@@ -67,8 +54,6 @@ export function useApi() {
       pagination = 0,
       pageSize = 10,
     ) => {
-      console.log("[API Hook] 📊 Fetching topic stream data:", topic);
-
       try {
         return await getStreamData(
           deviceId,
@@ -79,10 +64,7 @@ export function useApi() {
           pageSize,
         );
       } catch (error) {
-        console.error(
-          "[API Hook] ❌ getTopicStreamData failed:",
-          error.message,
-        );
+        console.error("[API] getTopicStreamData failed:", error.message);
         throw error;
       }
     },
@@ -94,28 +76,21 @@ export function useApi() {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Get state details for a device
+   * Fetch state details for a device.
    */
   const getDeviceStateDetails = useCallback(async (deviceId) => {
-    console.log("[API Hook] 📋 Fetching state details for:", deviceId);
-
     try {
       return await getStateDetails(deviceId);
     } catch (error) {
-      console.error(
-        "[API Hook] ❌ getDeviceStateDetails failed:",
-        error.message,
-      );
+      console.error("[API] getDeviceStateDetails failed:", error.message);
       throw error;
     }
   }, []);
 
   /**
-   * Get topic-specific state details
+   * Fetch topic-specific state details.
    */
   const getTopicStateDetails = useCallback(async (deviceId, topic) => {
-    console.log("[API Hook] 📋 Fetching topic state details:", topic);
-
     try {
       const response = await api.post("/get-state-details/device/topic", {
         deviceId,
@@ -123,26 +98,19 @@ export function useApi() {
       });
       return response.data;
     } catch (error) {
-      console.error(
-        "[API Hook] ❌ getTopicStateDetails failed:",
-        error.message,
-      );
+      console.error("[API] getTopicStateDetails failed:", error.message);
       throw error;
     }
   }, []);
 
   /**
-   * Update state (control command)
+   * Send a state update (control command) to a device topic.
    */
   const updateDeviceState = useCallback(async (deviceId, topic, payload) => {
-    console.log("[API Hook] 📤 Updating state...");
-    console.log("[API Hook] 📋 Device:", deviceId, "Topic:", topic);
-    console.log("[API Hook] 📦 Payload:", payload);
-
     try {
-      return await updateState(deviceId, topic, payload);
+      return await updateStateDetails(deviceId, topic, payload);
     } catch (error) {
-      console.error("[API Hook] ❌ updateDeviceState failed:", error.message);
+      console.error("[API] updateDeviceState failed:", error.message);
       throw error;
     }
   }, []);
@@ -200,8 +168,6 @@ export function useApi() {
    */
   const controlAirPurifier = useCallback(
     async (deviceId, state) => {
-      console.log("[API Hook] 🌬️ Air purifier control:", state);
-
       return updateDeviceState(deviceId, "control/air_purifier", {
         air_purifier: state ? "ON" : "OFF",
       });
@@ -210,12 +176,10 @@ export function useApi() {
   );
 
   /**
-   * Assign a Deliver task to a robot (auto task ID, single task type)
+   * Assign a delivery task to a robot via the state update API.
    */
   const assignRobotTask = useCallback(
     async (deviceId, robotId, task) => {
-      console.log("[API Hook] 🤖 Assigning Deliver task to robot:", robotId);
-
       const taskId = task.taskId || task.task_id || generateTaskId();
 
       const payload = {
@@ -241,17 +205,10 @@ export function useApi() {
   );
 
   /**
-   * Set threshold configuration
+   * Update threshold configuration for a device.
    */
   const setThreshold = useCallback(
     async (deviceId, thresholdType, value) => {
-      console.log(
-        "[API Hook] ⚙️ Setting threshold:",
-        thresholdType,
-        "=",
-        value,
-      );
-
       return updateDeviceState(deviceId, "config/thresholds", {
         [thresholdType]: value,
       });
@@ -260,12 +217,10 @@ export function useApi() {
   );
 
   /**
-   * Set system mode (MANUAL or AUTOMATED)
+   * Set system mode (MANUAL or AUTOMATIC).
    */
   const setSystemMode = useCallback(
     async (deviceId, mode) => {
-      console.log("[API Hook] ⚙️ Setting system mode:", mode);
-
       return updateDeviceState(deviceId, "config/mode", {
         mode: mode,
       });

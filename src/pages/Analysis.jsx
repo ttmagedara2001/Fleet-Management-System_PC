@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+/**
+ * @module Analysis
+ * @description Fleet intelligence and analysis page. Displays historical
+ * environment charts, robot sensor bar charts, fleet insight cards,
+ * and per-robot task history with phase tracking.
+ */
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
     Download,
     RefreshCw,
@@ -7,9 +13,7 @@ import {
     Battery,
     Loader2,
     Clock,
-    Globe,
     AlertCircle,
-    Database,
     Bot,
     Trash2
 } from 'lucide-react';
@@ -101,8 +105,6 @@ function Analysis() {
 
     // Fetch robot task data from HTTP (STATE and STREAM for discovery)
     const fetchRobotData = useCallback(async () => {
-        console.log(`[Analysis] 🤖 Fetching robot data for: ${selectedDeviceId}`);
-
         try {
             const { startTime, endTime } = getTimeRange(timeRange);
 
@@ -187,10 +189,9 @@ function Analysis() {
 
             const robots = Object.values(robotMap);
             setRobotData(robots);
-            console.log(`[Analysis] ✅ Robot data updated (${robots.length} robots)`);
 
         } catch (err) {
-            console.error('[Analysis] ❌ Robot data fetch failed');
+            console.error('[Analysis] Robot data fetch failed');
         }
     }, [selectedDeviceId, timeRange]);
 
@@ -253,10 +254,9 @@ function Analysis() {
 
             const chartData = Object.values(sensorDataMap);
             setRobotSensorData(chartData);
-            console.log(`[Analysis] ✅ Robot sensor data updated (${chartData.length} robots)`);
 
         } catch (err) {
-            console.error('[Analysis] ❌ Robot sensor data fetch failed', err);
+            console.error('[Analysis] Robot sensor data fetch failed', err);
         }
     }, [selectedDeviceId, timeRange, deviceRobots]);
 
@@ -316,9 +316,8 @@ function Analysis() {
                 .sort((a, b) => new Date(a.fullTime) - new Date(b.fullTime));
 
             setRobotChartData(transformed);
-            console.log(`[Analysis] ✅ Robot history updated (${transformed.length} points for ${selectedRobotForHistory})`);
         } catch (err) {
-            console.error('[Analysis] ❌ Robot history fetch failed', err);
+            console.error('[Analysis] Robot history fetch failed', err);
             setRobotChartData([]);
         }
     }, [selectedDeviceId, selectedRobotForHistory, timeRange]);
@@ -326,8 +325,6 @@ function Analysis() {
     useEffect(() => {
         fetchRobotHistory();
     }, [fetchRobotHistory]);
-
-    // Progress chart removed per user request; mergedChartData omitted
 
     // Deep-unwrap a raw value that may be nested as stringified JSON or { payload: ... } objects
     const deepUnwrapPayload = useCallback((raw) => {
@@ -482,7 +479,6 @@ function Analysis() {
             const deviceState = await getDeviceStateDetails(selectedDeviceId).catch(() => ({ status: 'Failed', data: {} }));
 
             if (deviceState.status === 'Success' && deviceState.data) {
-                console.log('[Analysis] 🔍 State API raw data keys:', Object.keys(deviceState.data).filter(k => k.includes('/task')));
                 Object.entries(deviceState.data).forEach(([topicKey, value]) => {
                     if (topicKey.includes('fleetMS/robots/') && topicKey.includes('/task')) {
                         try {
@@ -490,11 +486,8 @@ function Analysis() {
                             const robotId = match?.[1];
                             if (!robotId) return;
                             const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
-                            // Pass the raw value directly — parseTaskPayload's deepUnwrap handles all nesting
-                            console.log(`[Analysis] 🔍 State [${robotId}] raw value:`, typeof value, value);
                             const entry = parseTaskPayload(value, robotId, robotInfo, cutoff, 'state');
                             if (entry) {
-                                console.log(`[Analysis] ✅ State [${robotId}] parsed:`, entry.taskName, entry.taskId, entry.status);
                                 if (!taskMap[robotId]) taskMap[robotId] = [];
                                 taskMap[robotId].push(entry);
                             }
@@ -612,7 +605,7 @@ function Analysis() {
                 return next;
             });
         } catch (err) {
-            console.error('[Analysis] ❌ Task history fetch failed', err);
+            console.error('[Analysis] Task history fetch failed', err);
             setRobotTaskMap({});
         } finally {
             setHistoryLoading(false);
@@ -652,9 +645,8 @@ function Analysis() {
                 return updated;
             });
 
-            console.log(`[Analysis] 🗑️ Task deleted for ${robotId}:`, taskEntry.taskId || taskEntry.taskName);
         } catch (err) {
-            console.error(`[Analysis] ❌ Failed to delete task for ${robotId}:`, err);
+            console.error(`[Analysis] Failed to delete task for ${robotId}:`, err);
             alert('Failed to delete task. Please try again.');
         }
     }, [selectedDeviceId]);
@@ -706,14 +698,13 @@ function Analysis() {
             if (transformed.length > 0) {
                 setChartData(transformed);
                 setDataSource('api');
-                console.log(`[Analysis] ✅ Historical data updated (${transformed.length} points)`);
             } else {
                 setChartData([]);
                 setDataSource('empty');
             }
 
         } catch (err) {
-            console.error('[Analysis] ❌ Historical data fetch failed:', err);
+            console.error('[Analysis] Historical data fetch failed:', err);
             setError(err.message || 'Failed to fetch data');
             setDataSource('error');
         } finally {
@@ -743,7 +734,6 @@ function Analysis() {
     // Refresh task history when tasks are updated from Settings page
     useEffect(() => {
         if (taskUpdateVersion > 0) {
-            console.log('[Analysis] 🔄 Task update detected, refreshing task history...');
             fetchTaskHistory();
         }
     }, [taskUpdateVersion, fetchTaskHistory]);
@@ -780,7 +770,6 @@ function Analysis() {
         link.href = URL.createObjectURL(blob);
         link.download = `${selectedDeviceId}_data.csv`;
         link.click();
-        console.log('[Analysis] ✅ CSV exported');
     };
 
     // Styles (Condensed for brevity, same as original but removed comments/logs inside)

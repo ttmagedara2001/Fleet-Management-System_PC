@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { connectWebSocket } from '../services/webSocketClient';
 import { getStateDetails, updateStateDetails, getTopicStreamData, getTopicStateDetails, getTimeRange } from '../services/api';
@@ -203,13 +203,10 @@ export function DeviceProvider({ children }) {
         const fetchInitialState = async () => {
             if (!selectedDeviceId || !isAuthenticated) return;
 
-            console.log(`[Device] 📡 Fetching initial state for device: ${selectedDeviceId}`);
-
             try {
                 const response = await getStateDetails(selectedDeviceId);
 
                 if (response.status === 'Success' && response.data) {
-                    console.log('[Device] ✅ HTTP connection verified - Initial state received');
 
                     // Update device state with API data
                     setDeviceData(prev => ({
@@ -228,7 +225,7 @@ export function DeviceProvider({ children }) {
                     }));
                 }
             } catch (error) {
-                console.error('[Device] ❌ Failed to fetch initial state:', error);
+                console.error('[Device] Failed to fetch initial state:', error);
                 // Continue with WebSocket updates - API fetch is optional
             }
         };
@@ -483,7 +480,7 @@ export function DeviceProvider({ children }) {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
-                                    console.warn('[AutoControl] Failed to set AC ON', err);
+                                    console.error('[AutoControl] Failed to set AC ON', err);
                                 }
                             })();
                         } else if (temp > thresholds.temperature.max) {
@@ -493,7 +490,7 @@ export function DeviceProvider({ children }) {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
-                                    console.warn('[AutoControl] Failed to set AC OFF', err);
+                                    console.error('[AutoControl] Failed to set AC OFF', err);
                                 }
                             })();
                         }
@@ -509,7 +506,7 @@ export function DeviceProvider({ children }) {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'ACTIVE' });
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
-                                    console.warn('[AutoControl] Failed to set Air Purifier ACTIVE', err);
+                                    console.error('[AutoControl] Failed to set Air Purifier ACTIVE', err);
                                 }
                             })();
                         } else if (hum < thresholds.humidity.min) {
@@ -518,7 +515,7 @@ export function DeviceProvider({ children }) {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'INACTIVE' });
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
-                                    console.warn('[AutoControl] Failed to set Air Purifier INACTIVE', err);
+                                    console.error('[AutoControl] Failed to set Air Purifier INACTIVE', err);
                                 }
                             })();
                         }
@@ -526,7 +523,7 @@ export function DeviceProvider({ children }) {
                 }
             }
         } catch (err) {
-            console.warn('[AutoControl] Error evaluating automatic controls', err);
+            console.error('[AutoControl] Error evaluating automatic controls', err);
         }
     }, [addAlert, addEnvHistory, computeEnvSeverity]);
 
@@ -663,7 +660,6 @@ export function DeviceProvider({ children }) {
             const prevLat = existingRobot.location?.lat;
             const prevLng = existingRobot.location?.lng;
             if (newLat != null && newLng != null && (newLat !== prevLat || newLng !== prevLng)) {
-                console.log(`[Stream] 📍 ${robotId} location: lat:${newLat}, lng:${newLng}`);
             }
 
             // ===== MULTI-PHASE TASK TRACKING =====
@@ -797,7 +793,7 @@ export function DeviceProvider({ children }) {
                                         });
                                         notifyTaskUpdate();
                                     } catch (err) {
-                                        console.error(`[Device] ❌ Failed to send completion for ${robotId}:`, err);
+                                        console.error(`[Device] Failed to send completion for ${robotId}:`, err);
                                     }
                                 })();
 
@@ -941,9 +937,9 @@ export function DeviceProvider({ children }) {
                                     timestamp: new Date().toISOString(),
                                     action: 'robot_blocked'
                                 });
-                                console.log(`[Device] 🚨 Collision: ${robotId} blocked near ${pairNames}`);
+                                console.log(`[Device] Collision: ${robotId} blocked near ${pairNames}`);
                             } catch (err) {
-                                console.error('[Device] ❌ Failed to send collision state:', err);
+                                console.error('[Device] Failed to send collision state:', err);
                             }
                         })();
                     }, 0);
@@ -986,7 +982,7 @@ export function DeviceProvider({ children }) {
                                     action: 'robot_resumed'
                                 });
                             } catch (err) {
-                                console.error('[Device] ❌ Failed to send collision resolution:', err);
+                                console.error('[Device] Failed to send collision resolution:', err);
                             }
                         })();
                     }, 0);
@@ -1507,9 +1503,7 @@ export function DeviceProvider({ children }) {
         if (!isAuthenticated) return;
 
         const deviceId = selectedDeviceId;
-        console.log(`[Device] 🔗 Connecting WebSocket for device: ${deviceId}`);
 
-        // Data Routing Logic
         // Data Routing Logic
         const routeStreamData = (payload) => {
             let effectivePayload = payload;
@@ -1560,7 +1554,8 @@ export function DeviceProvider({ children }) {
                             handleRobotTaskUpdate(deviceId, robotId, data);
                             break;
                         default:
-                            console.warn(`[Device] Unhandled robot metric: ${metric}`);
+                            // Unknown robot metric — skip silently
+                            break;
                     }
                 };
 
@@ -1741,7 +1736,6 @@ export function DeviceProvider({ children }) {
                     if (task.phase === TASK_PHASES.COMPLETED || task.phase === TASK_PHASES.FAILED) return;
                     const lastUpdate = robot.lastUpdate || 0;
                     if (Date.now() - lastUpdate > TASK_TIMEOUT_MS) {
-                        console.warn(`[Device] ⚠️ Robot ${rId} timed out — no location update for 5 min`);
                         changed = true;
                         updated[rId] = {
                             ...robot,
@@ -1792,7 +1786,7 @@ export function DeviceProvider({ children }) {
 
             }
         } catch (error) {
-            console.error('[Device] ❌ Failed to refresh state:', error);
+            console.error('[Device] Failed to refresh state:', error);
         }
     }, [selectedDeviceId]);
 
@@ -1927,7 +1921,7 @@ export function DeviceProvider({ children }) {
 
 
                 } catch (err) {
-                    console.error('[Device] ❌ Failed to auto-fetch robot tasks:', err);
+                    console.error('[Device] Failed to auto-fetch robot tasks:', err);
                 }
             })();
         }, 500); // 500ms delay to allow robot registry to populate

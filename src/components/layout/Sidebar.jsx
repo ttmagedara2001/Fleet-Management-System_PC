@@ -1,4 +1,12 @@
-import React, { useState } from 'react';
+/**
+ * Sidebar — Navigation, user profile, and emergency controls.
+ *
+ * Provides tab navigation (Dashboard, Analysis, Settings),
+ * a collapsible sidebar toggle, and the emergency stop button.
+ *
+ * @module Sidebar
+ */
+import { useState } from 'react';
 import {
     LayoutDashboard,
     BarChart3,
@@ -6,7 +14,6 @@ import {
     User,
     StopCircle,
     RefreshCw,
-    AlertTriangle,
     Eye,
     EyeOff
 } from 'lucide-react';
@@ -32,35 +39,25 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
     ];
 
     const handleEmergencyStop = async () => {
-        console.log('[UI] 🚨 Emergency stop initiated for:', selectedDeviceId);
         setIsEmergencyLoading(true);
-
         try {
             await emergencyStop(selectedDeviceId);
-            console.log('[UI] ✅ Emergency stop successful');
-            // Flip to stopped state so the UI shows a Restart action
             setIsStopped(true);
         } catch (error) {
-            console.error('[UI] ❌ Emergency stop failed:', error);
+            console.error('[Sidebar] Emergency stop failed:', error);
         } finally {
             setIsEmergencyLoading(false);
         }
     };
 
     const handleRestart = () => {
-        console.log('[UI] 🔁 Restart requested, clearing emergency and reloading app');
         setIsEmergencyLoading(true);
-        // Try to clear emergency on the server, then reload.
         emergencyClear(selectedDeviceId)
-            .then(() => {
-                console.log('[UI] ✅ Emergency cleared on server');
-            })
             .catch((err) => {
-                console.error('[UI] ❌ Failed to clear emergency on server:', err);
+                console.error('[Sidebar] Failed to clear emergency:', err);
             })
             .finally(() => {
                 setIsEmergencyLoading(false);
-                // Reload to re-init app state and re-sync
                 window.location.reload();
             });
     };

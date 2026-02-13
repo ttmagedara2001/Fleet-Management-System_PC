@@ -69,7 +69,7 @@ api.interceptors.response.use(
         } catch (refreshErr) {
           isRefreshing = false;
           refreshQueue = [];
-          console.error("❌ Session refresh failed", refreshErr);
+          console.error("[API] Session refresh failed", refreshErr);
           return Promise.reject(refreshErr);
         }
       } else {
@@ -95,11 +95,11 @@ api.interceptors.response.use(
           now - api._lastError.time > 5000
         ) {
           api._lastError = { key, time: now };
-          console.error(`❌ API Error [${status}] ${url}`);
+          console.error(`[API] Error [${status}] ${url}`);
         }
       }
     } catch (_) {
-      console.error("❌ API Error", error);
+      console.error("[API] Error", error);
     }
     return Promise.reject(error);
   },

@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * @module Dashboard
+ * @description Main dashboard page with fab floor map, environment status cards,
+ * HVAC control toggles, active alerts, and robot detail cards.
+ */
+import { useState, useEffect, useRef } from 'react';
 import {
     Bot,
     Thermometer,
-    Droplets,
     Gauge,
     AlertTriangle,
     CheckCircle,
     Battery,
-    MapPin,
     Loader2,
     RefreshCw
 } from 'lucide-react';
@@ -20,7 +23,7 @@ function FabMap() {
     const { currentRobots } = useDevice();
     const [selectedRobot, setSelectedRobot] = useState(null);
     const [clickedCoords, setClickedCoords] = useState(null); // { lat, lng, x, y }
-    const mapRef = React.useRef(null);
+    const mapRef = useRef(null);
 
     const robots = Object.values(currentRobots || {});
 
@@ -71,9 +74,7 @@ function FabMap() {
     const copyToClipboard = () => {
         if (clickedCoords) {
             const text = `${clickedCoords.lat.toFixed(6)}, ${clickedCoords.lng.toFixed(6)}`;
-            navigator.clipboard.writeText(text).then(() => {
-                console.log('[Map] 📋 Coordinates copied:', text);
-            });
+            navigator.clipboard.writeText(text);
         }
     };
 
@@ -389,7 +390,7 @@ function StatusCard() {
                 return 'normal';
             }
         } catch (e) {
-            console.warn('[Dashboard] ❗ Failed to parse settings for temperature status', e);
+            console.warn('[Dashboard] Failed to parse settings for temperature status', e);
         }
         // Fallback to original thresholds
         if (temp > 28) return 'critical';
@@ -411,7 +412,7 @@ function StatusCard() {
                 return 'normal';
             }
         } catch (e) {
-            console.warn('[Dashboard] ❗ Failed to parse settings for humidity status', e);
+            console.warn('[Dashboard] Failed to parse settings for humidity status', e);
         }
         if (hum > 60 || hum < 30) return 'critical';
         if (hum > 55 || hum < 35) return 'warning';
@@ -435,7 +436,7 @@ function StatusCard() {
                 }
             }
         } catch (e) {
-            console.warn('[Dashboard] ❗ Failed to parse settings for pressure status', e);
+            console.warn('[Dashboard] Failed to parse settings for pressure status', e);
         }
         if (p < 980 || p > 1050) return 'critical';
         if (p < 990 || p > 1040) return 'warning';
@@ -532,8 +533,11 @@ function ControlToggles() {
     const airPurifierEnabled = airPurifierValue === 'ON' || airPurifierValue === 'ACTIVE';
 
     // Read system mode from saved settings (fallback to MANUAL)
-    const savedRaw = localStorage.getItem('fabrix_settings');
-    const saved = savedRaw ? JSON.parse(savedRaw) : {};
+    let saved = {};
+    try {
+        const savedRaw = localStorage.getItem('fabrix_settings');
+        if (savedRaw) saved = JSON.parse(savedRaw);
+    } catch { /* corrupt settings — use defaults */ }
     const systemMode = (saved.systemMode || 'MANUAL').toUpperCase();
     const isAuto = systemMode === 'AUTOMATIC' || systemMode === 'AUTO';
 
@@ -551,7 +555,7 @@ function ControlToggles() {
             await toggleAC(selectedDeviceId, desiredOn);
             if (refreshDeviceState) await refreshDeviceState();
         } catch (error) {
-            console.error('[Dashboard] ❌ Failed to toggle AC:', error);
+            console.error('[Dashboard] Failed to toggle AC:', error);
             setOverrides(prev => ({ ...prev, ac: null }));
             alert('Failed to toggle AC. Please try again.');
         } finally {
@@ -571,7 +575,7 @@ function ControlToggles() {
             await setAirPurifier(selectedDeviceId, desiredState);
             if (refreshDeviceState) await refreshDeviceState();
         } catch (error) {
-            console.error('[Dashboard] ❌ Failed to toggle Air Purifier:', error);
+            console.error('[Dashboard] Failed to toggle Air Purifier:', error);
             setOverrides(prev => ({ ...prev, airPurifier: null }));
             alert('Failed to toggle Air Purifier. Please try again.');
         } finally {
@@ -623,8 +627,11 @@ function ManualModeNotice() {
     const { currentDeviceData } = useDevice();
     const env = currentDeviceData?.environment || {};
 
-    const savedRaw = localStorage.getItem('fabrix_settings');
-    const saved = savedRaw ? JSON.parse(savedRaw) : {};
+    let saved = {};
+    try {
+        const savedRaw = localStorage.getItem('fabrix_settings');
+        if (savedRaw) saved = JSON.parse(savedRaw);
+    } catch { /* corrupt settings — use defaults */ }
     const mode = saved.systemMode || 'MANUAL';
     const thresholds = saved.thresholds || { temperature: { min: 18, max: 28 }, humidity: { min: 30, max: 60 } };
 
@@ -656,7 +663,7 @@ function ManualModeNotice() {
 function RobotDetails() {
     const { currentRobots, fetchRobotTasks } = useDevice();
     const robots = Object.values(currentRobots || {});
-    const [isRefreshing, setIsRefreshing] = React.useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Handle refresh to fetch robot tasks from API
     const handleRefresh = async () => {
@@ -664,17 +671,16 @@ function RobotDetails() {
         setIsRefreshing(true);
         try {
             await fetchRobotTasks();
-            console.log('[Dashboard] 🔄 Robot tasks refreshed');
         } catch (err) {
-            console.error('[Dashboard] ❌ Failed to refresh robot tasks:', err);
+            console.error('[Dashboard] Failed to refresh robot tasks:', err);
         } finally {
             setIsRefreshing(false);
         }
     };
 
     // Fetch robot tasks on initial mount (only once)
-    const hasFetchedRef = React.useRef(false);
-    React.useEffect(() => {
+    const hasFetchedRef = useRef(false);
+    useEffect(() => {
         if (fetchRobotTasks && !hasFetchedRef.current) {
             hasFetchedRef.current = true;
             fetchRobotTasks();

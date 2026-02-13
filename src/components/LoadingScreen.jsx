@@ -1,4 +1,9 @@
-import React from 'react';
+/**
+ * @module LoadingScreen
+ * @description Multi-stage loading screen with progress bar and stage indicators.
+ * Shows Auth → Connect → Ready pipeline during application initialisation.
+ * NOTE: Currently unused — App.jsx uses an inline loading screen.
+ */
 
 function LoadingScreen({ message = 'Loading...', stage = 'init' }) {
     const stages = {

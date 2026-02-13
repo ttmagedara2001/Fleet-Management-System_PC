@@ -102,7 +102,6 @@ export async function login() {
  */
 export async function refreshSession() {
   try {
-    console.log("🔄 Refreshing session via /get-new-token...");
     const currentToken = getToken();
     const headers = {
       "Content-Type": "application/json",
@@ -119,7 +118,7 @@ export async function refreshSession() {
     });
 
     if (!response.ok) {
-      console.error("❌ Session refresh failed:", response.status);
+      console.error("[Auth] Session refresh failed:", response.status);
       return false;
     }
 
@@ -127,14 +126,11 @@ export async function refreshSession() {
     const jwt = extractToken(text);
     if (jwt) {
       localStorage.setItem(TOKEN_KEY, jwt);
-      console.log("✅ Session refreshed – new JWT stored");
-    } else {
-      console.log("✅ Session refreshed (cookie-only)");
     }
 
     return true;
   } catch (error) {
-    console.error("❌ Session refresh error:", error.message);
+    console.error("[Auth] Session refresh error:", error.message);
     return false;
   }
 }
@@ -153,7 +149,6 @@ export function getToken() {
  */
 export function clearTokens() {
   localStorage.removeItem(TOKEN_KEY);
-  console.log("🧹 JWT cleared");
 }
 
 export default { login, refreshSession, getToken, clearTokens };
