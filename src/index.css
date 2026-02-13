@@ -844,6 +844,11 @@ body {
   border-left-color: var(--status-warning);
 }
 
+.alert-item.info {
+  background: rgba(59, 130, 246, 0.06);
+  border-left-color: #3B82F6;
+}
+
 .no-alerts {
   display: flex;
   flex-direction: column;

@@ -5,9 +5,10 @@ import { getStateDetails, updateStateDetails, getTopicStreamData, getTopicStateD
 import { getRobotsForDevice, DEFAULT_ROBOT_SENSOR_DATA, ROBOT_STATUS } from '../config/robotRegistry';
 import {
     TASK_PHASES, PHASE_LABELS,
-    haversineDistance, ARRIVAL_THRESHOLD_M, AUTO_ADVANCE_DELAY_MS,
+    haversineDistance, ARRIVAL_THRESHOLD_M, COLLISION_THRESHOLD_M, AUTO_ADVANCE_DELAY_MS,
     computePhaseProgress, isInsideRoom, findRoomAtPoint, resolveRoom, ROOMS
 } from '../utils/telemetryMath';
+import { getThresholds } from '../utils/thresholds';
 
 const DeviceContext = createContext(null);
 
@@ -58,43 +59,7 @@ const DEFAULT_THRESHOLDS = {
     pressure: { min: 980, max: 1040 }
 };
 
-// Get thresholds from localStorage
-const getThresholds = () => {
-    try {
-        const saved = localStorage.getItem('fabrix_settings');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // First try the pre-built thresholds object (set by Settings page on save)
-            if (parsed.thresholds) {
-                return { ...DEFAULT_THRESHOLDS, ...parsed.thresholds };
-            }
-            // Fallback: build thresholds from flat Settings structure
-            return {
-                temperature: {
-                    min: parsed.temperature?.min ?? DEFAULT_THRESHOLDS.temperature.min,
-                    max: parsed.temperature?.max ?? DEFAULT_THRESHOLDS.temperature.max,
-                    critical: parsed.temperature?.critical ?? (parsed.temperature?.max != null ? parsed.temperature.max + 4 : DEFAULT_THRESHOLDS.temperature.critical)
-                },
-                humidity: {
-                    min: parsed.humidity?.min ?? DEFAULT_THRESHOLDS.humidity.min,
-                    max: parsed.humidity?.max ?? DEFAULT_THRESHOLDS.humidity.max,
-                    critical: parsed.humidity?.critical ?? (parsed.humidity?.max != null ? parsed.humidity.max + 15 : DEFAULT_THRESHOLDS.humidity.critical)
-                },
-                battery: {
-                    low: parsed.battery?.min ?? DEFAULT_THRESHOLDS.battery.low,
-                    critical: parsed.battery?.critical ?? DEFAULT_THRESHOLDS.battery.critical
-                },
-                pressure: {
-                    min: parsed.pressure?.min ?? DEFAULT_THRESHOLDS.pressure.min,
-                    max: parsed.pressure?.max ?? DEFAULT_THRESHOLDS.pressure.max
-                }
-            };
-        }
-    } catch (error) {
-        console.error('[Device] ❌ Failed to load thresholds:', error);
-    }
-    return DEFAULT_THRESHOLDS;
-};
+// Re-export getThresholds from shared utility — all threshold reads go through thresholds.js
 
 export function DeviceProvider({ children }) {
     const { token, isAuthenticated } = useAuth();
@@ -137,6 +102,7 @@ export function DeviceProvider({ children }) {
                         ...robot,
                         ...DEFAULT_ROBOT_SENSOR_DATA,
                         task: null,
+                        taskQueue: [],   // Queue of pending tasks (FIFO)
                         lastUpdate: Date.now()
                     };
                 });
@@ -176,6 +142,24 @@ export function DeviceProvider({ children }) {
     // Store fetched robot tasks from API (keyed by robotId)
     const [fetchedRobotTasks, setFetchedRobotTasks] = useState({});
 
+    // Persistent local task history — accumulates ALL allocated tasks so none are lost
+    // Structure: { [deviceId]: { [robotId]: TaskEntry[] } }
+    const taskHistoryRef = useRef(() => {
+        try {
+            const stored = localStorage.getItem('fabrix_task_history');
+            return stored ? JSON.parse(stored) : {};
+        } catch { return {}; }
+    });
+    // Initialize ref on first render
+    if (typeof taskHistoryRef.current === 'function') {
+        taskHistoryRef.current = taskHistoryRef.current();
+    }
+
+    // Getter for local task history (used by Analysis page)
+    const getLocalTaskHistory = useCallback((deviceId) => {
+        return taskHistoryRef.current[deviceId] || {};
+    }, []);
+
     // Function to notify that a task was updated
     const notifyTaskUpdate = useCallback(() => {
         setTaskUpdateVersion(v => v + 1);
@@ -183,6 +167,8 @@ export function DeviceProvider({ children }) {
 
     // Throttle timestamps for automatic control actions per device
     const autoActionTimestamps = useRef({});
+    // Throttle collision alerts — key = sorted robot pair, value = last alert timestamp
+    const collisionAlertThrottle = useRef({});
     // Ref to always hold latest refreshDeviceState for callbacks that can't include it in deps
     const refreshDeviceStateRef = useRef(null);
 
@@ -684,7 +670,10 @@ export function DeviceProvider({ children }) {
             const currentTask = existingRobot.task;
             let updatedTask = currentTask;
 
-            if (currentTask && currentTask.phase && currentTask.phase !== TASK_PHASES.COMPLETED && currentTask.phase !== TASK_PHASES.FAILED) {
+            // Skip phase progression if robot is BLOCKED due to collision
+            const isBlocked = existingRobot.status?.state === 'BLOCKED' || currentTask?.paused;
+
+            if (currentTask && currentTask.phase && currentTask.phase !== TASK_PHASES.COMPLETED && currentTask.phase !== TASK_PHASES.FAILED && !isBlocked) {
                 // Room names for geofence checking (fuzzy-matched via resolveRoom)
                 const rawSrcRoom = currentTask['initiate location'] || currentTask.source_name || null;
                 const rawDstRoom = currentTask.destination || currentTask.destination_name || null;
@@ -825,11 +814,26 @@ export function DeviceProvider({ children }) {
                                 };
                             });
 
-                            // Clear task after showing completion
+                            // Clear task after showing completion, then dequeue next
                             setTimeout(() => {
                                 setRobots(p => {
                                     const r = p[deviceId]?.[robotId];
                                     if (!r?.task || r.task.phase !== TASK_PHASES.COMPLETED) return p;
+
+                                    // If there are queued tasks, dequeue the next one
+                                    const queue = r.taskQueue || [];
+                                    if (queue.length > 0) {
+                                        const [nextTask, ...remaining] = queue;
+                                        setTimeout(() => {
+                                            handleRobotTaskUpdate(deviceId, robotId, { ...nextTask, status: 'Assigned', assignedAt: new Date().toISOString() });
+                                            notifyTaskUpdate();
+                                        }, 500);
+                                        return {
+                                            ...p,
+                                            [deviceId]: { ...p[deviceId], [robotId]: { ...r, task: null, taskQueue: remaining, status: { ...r.status, state: 'READY' } } }
+                                        };
+                                    }
+
                                     return {
                                         ...p,
                                         [deviceId]: { ...p[deviceId], [robotId]: { ...r, task: null, status: { ...r.status, state: 'READY' } } }
@@ -864,27 +868,150 @@ export function DeviceProvider({ children }) {
                 }
             }
 
+            // ═══ COLLISION DETECTION (atomic — merged into location update) ═══
+            // Build the updated robot with new location and phase changes
+            const updatedThisRobot = {
+                ...existingRobot,
+                location: {
+                    lat: newLat,
+                    lng: newLng,
+                    z: payload.z ?? payload.altitude ?? existingRobot.location?.z
+                },
+                task: updatedTask,
+                heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
+                lastUpdate: Date.now()
+            };
+
+            // Check this robot against all other robots on the same device
+            const collidingPairs = [];
+            if (newLat != null && newLng != null) {
+                Object.entries(deviceRobots).forEach(([otherId, otherRobot]) => {
+                    if (otherId === robotId) return;
+                    if (!otherRobot?.location?.lat || !otherRobot?.location?.lng) return;
+                    const dist = haversineDistance(newLat, newLng, otherRobot.location.lat, otherRobot.location.lng);
+                    if (dist <= COLLISION_THRESHOLD_M) {
+                        collidingPairs.push({ otherId, distance: dist.toFixed(2) });
+                    }
+                });
+            }
+
+            // Start with a copy of all device robots
+            const updatedDeviceRobots = { ...deviceRobots };
+
+            if (collidingPairs.length > 0) {
+                // ── COLLISION DETECTED ──
+                // Only block the robot that moved into the collision zone.
+                // The other robot(s) keep operating — we just alert about them.
+                const nearbyIds = collidingPairs.map(p => p.otherId);
+
+                // Block THIS robot (the one that moved too close)
+                updatedThisRobot.status = {
+                    ...existingRobot.status,
+                    state: 'BLOCKED',
+                    blockedAt: existingRobot.status?.state === 'BLOCKED' ? existingRobot.status.blockedAt : Date.now(),
+                    blockedBy: nearbyIds
+                };
+                updatedThisRobot.task = updatedTask
+                    ? { ...updatedTask, paused: true, pausedReason: 'collision' }
+                    : null;
+
+                // Do NOT modify the other robots — they continue undisturbed
+
+                // Throttled side-effects (alerts + IoT) — max once per 30s per robot pair
+                const pairKey = [robotId, ...nearbyIds].sort().join('|');
+                const now = Date.now();
+                const lastAlertTime = collisionAlertThrottle.current[pairKey] || 0;
+                if (now - lastAlertTime > 30000) {
+                    collisionAlertThrottle.current[pairKey] = now;
+                    const pairNames = nearbyIds.join(', ');
+                    setTimeout(() => {
+                        addAlert({
+                            type: 'critical', deviceId, robotId,
+                            message: `🚨 COLLISION RISK: ${robotId} is within ${collidingPairs[0].distance}m of ${pairNames}. ${robotId} blocked until path is clear.`,
+                            timestamp: Date.now()
+                        });
+                        (async () => {
+                            try {
+                                await updateStateDetails(deviceId, 'fleetMS/collision', {
+                                    type: 'collision_detected',
+                                    blocked_robot: robotId,
+                                    nearby_robots: nearbyIds,
+                                    distance: collidingPairs[0].distance,
+                                    location: { lat: newLat, lng: newLng },
+                                    timestamp: new Date().toISOString(),
+                                    action: 'robot_blocked'
+                                });
+                                console.log(`[Device] 🚨 Collision: ${robotId} blocked near ${pairNames}`);
+                            } catch (err) {
+                                console.error('[Device] ❌ Failed to send collision state:', err);
+                            }
+                        })();
+                    }, 0);
+                }
+
+            } else if (existingRobot.status?.state === 'BLOCKED') {
+                // ── CHECK COLLISION RESOLUTION ──
+                const blockedBy = existingRobot.status?.blockedBy || [];
+                const stillColliding = blockedBy.some(otherId => {
+                    const other = deviceRobots[otherId];
+                    if (!other?.location?.lat || !other?.location?.lng) return false;
+                    return haversineDistance(newLat, newLng, other.location.lat, other.location.lng) <= COLLISION_THRESHOLD_M;
+                });
+
+                if (!stillColliding) {
+                    // Unblock this robot — it has moved away from the collision zone
+                    const resumedState = updatedTask?.phase && updatedTask.phase !== TASK_PHASES.COMPLETED ? 'ACTIVE' : 'READY';
+                    updatedThisRobot.status = {
+                        ...existingRobot.status,
+                        state: resumedState,
+                        blockedAt: undefined,
+                        blockedBy: undefined
+                    };
+                    updatedThisRobot.task = updatedTask
+                        ? { ...updatedTask, paused: false, pausedReason: null }
+                        : null;
+
+                    setTimeout(() => {
+                        addAlert({
+                            type: 'info', deviceId, robotId,
+                            message: `✅ Collision resolved: ${robotId} path cleared. Resuming operations.`,
+                            timestamp: Date.now()
+                        });
+                        (async () => {
+                            try {
+                                await updateStateDetails(deviceId, 'fleetMS/collision', {
+                                    type: 'collision_resolved',
+                                    robot: robotId,
+                                    timestamp: new Date().toISOString(),
+                                    action: 'robot_resumed'
+                                });
+                            } catch (err) {
+                                console.error('[Device] ❌ Failed to send collision resolution:', err);
+                            }
+                        })();
+                    }, 0);
+                } else {
+                    // Still colliding — maintain BLOCKED state
+                    updatedThisRobot.status = existingRobot.status;
+                    updatedThisRobot.task = updatedTask
+                        ? { ...updatedTask, paused: true, pausedReason: 'collision' }
+                        : null;
+                }
+
+            } else {
+                // ── NORMAL STATUS ASSIGNMENT (no collision) ──
+                updatedThisRobot.status = updatedTask?.phase === TASK_PHASES.COMPLETED
+                    ? { ...existingRobot.status, state: 'READY' }
+                    : updatedTask?.phase && updatedTask.phase !== TASK_PHASES.ASSIGNED
+                        ? { ...existingRobot.status, state: 'ACTIVE' }
+                        : (payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status);
+            }
+
+            updatedDeviceRobots[robotId] = updatedThisRobot;
+
             return {
                 ...prev,
-                [deviceId]: {
-                    ...deviceRobots,
-                    [robotId]: {
-                        ...existingRobot,
-                        location: {
-                            lat: newLat,
-                            lng: newLng,
-                            z: payload.z ?? payload.altitude ?? existingRobot.location?.z
-                        },
-                        task: updatedTask,
-                        status: updatedTask?.phase === TASK_PHASES.COMPLETED
-                            ? { ...existingRobot.status, state: 'READY' }
-                            : updatedTask?.phase && updatedTask.phase !== TASK_PHASES.ASSIGNED
-                                ? { ...existingRobot.status, state: 'ACTIVE' }
-                                : (payload.status ? { ...existingRobot.status, ...payload.status } : existingRobot.status),
-                        heading: payload.heading ?? payload.orientation ?? existingRobot.heading,
-                        lastUpdate: Date.now()
-                    }
-                }
+                [deviceId]: updatedDeviceRobots
             };
         });
 
@@ -1113,11 +1240,50 @@ export function DeviceProvider({ children }) {
 
     // Handle robot task updates (both stream and state)
     const handleRobotTaskUpdate = useCallback((deviceId, robotId, payload) => {
+        // ── Record task to persistent local history ──────────────────────
+        if (payload && typeof payload === 'object' && payload.status !== 'cleared') {
+            const taskId = payload.task_id || payload.taskId || payload.id;
+            if (taskId) {
+                const history = taskHistoryRef.current;
+                if (!history[deviceId]) history[deviceId] = {};
+                if (!history[deviceId][robotId]) history[deviceId][robotId] = [];
+
+                const robotTasks = history[deviceId][robotId];
+                const existingIdx = robotTasks.findIndex(t => (t.task_id || t.taskId) === taskId);
+
+                const entry = {
+                    ...payload,
+                    robotId,
+                    task_type: payload.task_type || 'Deliver',
+                    timestamp: payload.timestamp || payload.assignedAt || Date.now(),
+                    recordedAt: existingIdx >= 0 ? robotTasks[existingIdx].recordedAt : Date.now(),
+                    lastUpdated: Date.now(),
+                };
+
+                if (existingIdx >= 0) {
+                    // Merge — keep original recordedAt, update everything else
+                    robotTasks[existingIdx] = { ...robotTasks[existingIdx], ...entry };
+                } else {
+                    robotTasks.push(entry);
+                }
+
+                // Trim entries older than 7 days to prevent unbounded growth
+                const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                history[deviceId][robotId] = robotTasks.filter(
+                    t => (t.lastUpdated || t.recordedAt || 0) > cutoff
+                );
+
+                try { localStorage.setItem('fabrix_task_history', JSON.stringify(history)); } catch { /* ignore quota errors */ }
+            }
+        }
+
+        // ── Update live robot state ──────────────────────────────────────
         // Ensure robot is registered
         setRobots(prev => {
             if (!prev[deviceId]?.[robotId]) return prev;
 
             const currentRobot = prev[deviceId][robotId];
+            const currentQueue = currentRobot.taskQueue || [];
 
             // Normalize task data — always treat as Deliver
             let taskData = payload;
@@ -1133,21 +1299,56 @@ export function DeviceProvider({ children }) {
 
             // If already completed/cleared, don't overwrite with new assignment data
             if (taskData.status === 'cleared') {
+                // Try to dequeue next task
+                if (currentQueue.length > 0) {
+                    const [nextTask, ...remaining] = currentQueue;
+                    // Schedule the next task to start after a brief delay
+                    setTimeout(() => {
+                        handleRobotTaskUpdate(deviceId, robotId, { ...nextTask, status: 'Assigned' });
+                    }, 500);
+                    return {
+                        ...prev,
+                        [deviceId]: {
+                            ...prev[deviceId],
+                            [robotId]: { ...currentRobot, task: null, taskQueue: remaining, status: { ...currentRobot.status, state: 'READY' }, lastUpdate: Date.now() }
+                        }
+                    };
+                }
                 return {
                     ...prev,
                     [deviceId]: {
                         ...prev[deviceId],
-                        [robotId]: { ...currentRobot, task: null, status: { ...currentRobot.status, state: 'READY' }, lastUpdate: Date.now() }
+                        [robotId]: { ...currentRobot, task: null, taskQueue: [], status: { ...currentRobot.status, state: 'READY' }, lastUpdate: Date.now() }
                     }
                 };
             }
 
             // Preserve existing phase data if this is an incremental update (same taskId)
             const existingTask = currentRobot.task;
-            const isSameTask = existingTask && (
-                (taskData.task_id && taskData.task_id === existingTask.task_id) ||
-                (taskData.taskId && taskData.taskId === existingTask.taskId)
-            );
+            const incomingTaskId = taskData.task_id || taskData.taskId;
+            const existingTaskId = existingTask?.task_id || existingTask?.taskId;
+            const isSameTask = existingTask && incomingTaskId && incomingTaskId === existingTaskId;
+
+            // ── Queue logic: if robot is busy with a different task, queue the new one ──
+            if (existingTask && !isSameTask && incomingTaskId) {
+                const existingPhase = existingTask.phase;
+                const isExistingActive = existingPhase && existingPhase !== TASK_PHASES.COMPLETED;
+                if (isExistingActive) {
+                    // Don't queue duplicates
+                    const alreadyQueued = currentQueue.some(t => (t.task_id || t.taskId) === incomingTaskId);
+                    if (!alreadyQueued) {
+                        const updatedQueue = [...currentQueue, { ...taskData, status: 'Assigned', assignedAt: Date.now() }];
+                        return {
+                            ...prev,
+                            [deviceId]: {
+                                ...prev[deviceId],
+                                [robotId]: { ...currentRobot, taskQueue: updatedQueue, lastUpdate: Date.now() }
+                            }
+                        };
+                    }
+                    return prev;
+                }
+            }
 
             // If the incoming payload already has a phase (e.g. from backend), respect it
             const incomingPhase = taskData.phase;
@@ -1179,7 +1380,7 @@ export function DeviceProvider({ children }) {
                 phase,
                 assignedAtLat,
                 assignedAtLng,
-                assignedAt: isSameTask ? (existingTask.assignedAt ?? Date.now()) : Date.now(),
+                assignedAt: isSameTask ? (existingTask.assignedAt ?? taskData.assignedAt ?? new Date().toISOString()) : (taskData.assignedAt ?? new Date().toISOString()),
                 // Preserve timestamps from existing task
                 sourceArrivedAt: isSameTask ? existingTask.sourceArrivedAt : null,
                 pickedUpAt: isSameTask ? existingTask.pickedUpAt : null,
@@ -1220,12 +1421,37 @@ export function DeviceProvider({ children }) {
                     [robotId]: {
                         ...currentRobot,
                         task: mergedTask,
+                        taskQueue: currentQueue,
                         status: { ...currentRobot.status, state: phase === TASK_PHASES.COMPLETED ? 'READY' : 'ACTIVE' },
                         lastUpdate: Date.now()
                     }
                 }
             };
         });
+
+        // ── Auto-dequeue: if task just completed, start next queued task after brief delay ──
+        if (payload && typeof payload === 'object' &&
+            (payload.status === 'Completed' || payload.status === 'completed' || payload.phase === TASK_PHASES.COMPLETED)) {
+            setTimeout(() => {
+                setRobots(p => {
+                    const r = p[deviceId]?.[robotId];
+                    if (!r || !r.taskQueue?.length) return p;
+                    // Only dequeue if current task is completed or null
+                    const currentPhase = r.task?.phase;
+                    if (r.task && currentPhase !== TASK_PHASES.COMPLETED) return p;
+
+                    const [nextTask, ...remaining] = r.taskQueue;
+                    // Schedule the next queued task
+                    setTimeout(() => {
+                        handleRobotTaskUpdate(deviceId, robotId, { ...nextTask, status: 'Assigned', assignedAt: Date.now() });
+                    }, 100);
+                    return {
+                        ...p,
+                        [deviceId]: { ...p[deviceId], [robotId]: { ...r, taskQueue: remaining, lastUpdate: Date.now() } }
+                    };
+                });
+            }, 2000); // 2s delay before picking up next task
+        }
     }, []);
 
     // Handle robot online/offline status updates
@@ -1435,6 +1661,8 @@ export function DeviceProvider({ children }) {
     }, [isAuthenticated, selectedDeviceId, handleTemperatureUpdate, handleACUpdate, handleDeviceStatusUpdate, handleAirPurifierUpdate, handleRobotsDiscovery, handleRobotLocationUpdate, handleRobotTempUpdate, handleRobotStatusUpdate, handleRobotBatteryUpdate, handleRobotTaskUpdate, handleRobotOnlineStatus]);
 
     // Poll robot topics every 10s to ensure status updates from topic `fleetMS/robots/<robotId>` are applied
+    // IMPORTANT: Only apply data that is NEWER than the robot's last update to avoid overwriting
+    // live WebSocket/MQTTX updates with stale poll results.
     useEffect(() => {
         if (!isAuthenticated || !selectedDeviceId) return;
 
@@ -1442,31 +1670,37 @@ export function DeviceProvider({ children }) {
 
         const pollOnce = async () => {
             try {
-                const deviceRobots = Object.keys(robots[selectedDeviceId] || {});
-                if (deviceRobots.length === 0) return;
+                const deviceRobots = robots[selectedDeviceId] || {};
+                const robotIds = Object.keys(deviceRobots);
+                if (robotIds.length === 0) return;
 
                 // small time window (last 2 minutes) to capture recent messages
                 const { startTime, endTime } = getTimeRange(0.0333); // ~2 minutes
 
-                await Promise.all(deviceRobots.map(async (robotId) => {
+                await Promise.all(robotIds.map(async (robotId) => {
                     if (cancelled) return;
                     try {
                         const res = await getTopicStreamData(selectedDeviceId, `fleetMS/robots/${robotId}`, startTime, endTime, '0', '5', { silent: true });
                         if (res?.status === 'Success' && Array.isArray(res.data) && res.data.length > 0) {
                             // Use most recent message
                             const latest = res.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+
+                            // Skip if this message is older than the robot's last live update
+                            const messageTime = new Date(latest.timestamp).getTime();
+                            const robotLastUpdate = deviceRobots[robotId]?.lastUpdate || 0;
+                            if (messageTime <= robotLastUpdate) return; // stale data — skip
+
                             let payload = {};
                             try { payload = JSON.parse(latest.payload || '{}'); } catch (e) { payload = latest.payload || {}; }
 
-                            // Dispatch updates based on payload keys
+                            // Dispatch updates based on payload keys — but NOT location
+                            // Location is handled exclusively via live WebSocket/stream to
+                            // prevent position flickering from stale poll results.
                             if (payload.temperature !== undefined || payload.temp !== undefined) {
                                 handleRobotTempUpdate(selectedDeviceId, robotId, payload);
                             }
                             if (payload.battery !== undefined || payload.level !== undefined) {
                                 handleRobotBatteryUpdate(selectedDeviceId, robotId, payload);
-                            }
-                            if (payload.lat !== undefined || payload.lng !== undefined || payload.location !== undefined) {
-                                handleRobotLocationUpdate(selectedDeviceId, robotId, payload.location || payload);
                             }
                             if (payload.status !== undefined || payload.state !== undefined || payload.obstacle !== undefined) {
                                 handleRobotStatusUpdate(selectedDeviceId, robotId, payload);
@@ -1488,7 +1722,7 @@ export function DeviceProvider({ children }) {
         pollOnce();
         const id = setInterval(pollOnce, 10000);
         return () => { cancelled = true; clearInterval(id); };
-    }, [isAuthenticated, selectedDeviceId, robots, handleRobotTempUpdate, handleRobotBatteryUpdate, handleRobotLocationUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
+    }, [isAuthenticated, selectedDeviceId, robots, handleRobotTempUpdate, handleRobotBatteryUpdate, handleRobotStatusUpdate, handleRobotTaskUpdate]);
 
     // ===== TIMEOUT DETECTION =====
     // Periodically check if any robot with an active task hasn't received a location update for 5 min → mark FAILED
@@ -1788,7 +2022,8 @@ export function DeviceProvider({ children }) {
         fetchRobotTasks,      // Fetch all robot tasks from API
         isRobotBusy,          // Check if robot has an active task
         getRobotActiveTask,   // Get robot's current active task
-        fetchedRobotTasks     // Cached fetched tasks by device
+        fetchedRobotTasks,    // Cached fetched tasks by device
+        getLocalTaskHistory   // Persistent local task history for all allocated tasks
     };
 
     return (

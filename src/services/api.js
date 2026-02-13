@@ -1,10 +1,10 @@
 /**
  * Fleet Management System - API Client
  *
- * Cookie-based authentication:
- * - withCredentials: true sends/receives HTTP-only cookies automatically.
- * - No JWT or X-Token header is needed.
- * - On 401 → tries /get-new-token (cookie refresh) → falls back to full /get-token re-login.
+ * Authentication: Authorization header (Bearer JWT) + HTTP-only cookies.
+ * - A request interceptor attaches `Authorization: Bearer <token>` to every request.
+ * - withCredentials: true ensures HTTP-only cookies (refresh token) travel too.
+ * - On 401 → /get-new-token (cookie refresh) → fallback to full /get-token re-login.
  */
 
 import axios from "axios";
@@ -15,14 +15,24 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  withCredentials: true, // send cookies on every request
+  withCredentials: true, // send cookies alongside Authorization header
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
 
-// No request interceptor needed — cookies are sent automatically
+// ── Request Interceptor: attach Authorization header ──────────────
+api.interceptors.request.use(
+  (config) => {
+    const token = getToken();
+    if (token && token !== "__cookie_session__") {
+      config.headers["Authorization"] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
 
 // Response interceptor: handle 401 with cookie refresh, plus logging
 let isRefreshing = false;
@@ -51,7 +61,8 @@ api.interceptors.response.use(
             await reLogin();
           }
           isRefreshing = false;
-          // Replay queued requests (cookies are already updated by browser)
+          // Replay queued requests – the request interceptor will
+          // attach the fresh JWT automatically from localStorage.
           refreshQueue.forEach((cb) => cb());
           refreshQueue = [];
           return api(originalRequest);

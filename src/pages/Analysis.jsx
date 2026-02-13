@@ -29,9 +29,10 @@ import { useDevice } from '../contexts/DeviceContext';
 import { getDeviceStreamData, getTopicStreamData, getDeviceStateDetails, updateStateDetails, getTimeRange } from '../services/api';
 import { getRobotsForDevice } from '../config/robotRegistry';
 import { TASK_PHASES, PHASE_LABELS, PHASE_COLORS, computePhaseProgress, findRoomAtPoint, ROOMS } from '../utils/telemetryMath';
+import { getThresholds as getThresholdsShared } from '../utils/thresholds';
 
 function Analysis() {
-    const { selectedDeviceId, currentRobots, taskUpdateVersion, fetchRobotTasks } = useDevice();
+    const { selectedDeviceId, currentRobots, taskUpdateVersion, fetchRobotTasks, getLocalTaskHistory } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -53,11 +54,14 @@ function Analysis() {
         const robotsArr = Object.values(currentRobots || {});
         if (robotsArr.length === 0) return null;
 
+        // Read user-defined thresholds
+        const thresholds = getThresholdsShared();
+
         const avgBattery = Math.round(robotsArr.reduce((acc, r) => acc + (r.status?.battery || 0), 0) / robotsArr.length);
         const avgTemp = (robotsArr.reduce((acc, r) => acc + (r.environment?.temp || 0), 0) / robotsArr.length).toFixed(1);
 
-        const lowBattery = robotsArr.filter(r => (r.status?.battery || 100) < 30);
-        const highTemp = robotsArr.filter(r => (r.environment?.temp || 0) > 35);
+        const lowBattery = robotsArr.filter(r => (r.status?.battery || 100) <= thresholds.battery.low);
+        const highTemp = robotsArr.filter(r => (r.environment?.temp || 0) > thresholds.robotTemp.max);
         const activeTasks = robotsArr.filter(r => r.task?.status === 'In Progress').length;
 
         return {
@@ -378,8 +382,18 @@ function Analysis() {
         const payloadObj = deepUnwrapPayload(rawPayload);
         if (!payloadObj || typeof payloadObj !== 'object') return null;
 
-        // Extract timestamp
-        const possibleTs = payloadObj.timestamp || payloadObj.time || payloadObj.updatedAt || null;
+        // Extract allocated timestamp — ONLY from assignedAt (set when task is allocated from Settings)
+        const rawAllocatedTs = payloadObj.assignedAt || null;
+        let allocatedAt = null;
+        if (rawAllocatedTs) {
+            allocatedAt = typeof rawAllocatedTs === 'number'
+                ? Math.floor(Number(rawAllocatedTs) * (rawAllocatedTs < 1e12 ? 1000 : 1))
+                : new Date(rawAllocatedTs).getTime();
+            if (isNaN(allocatedAt)) allocatedAt = null;
+        }
+
+        // General timestamp for dedup/sorting (use allocatedAt or fallback)
+        const possibleTs = rawAllocatedTs || payloadObj.recordedAt || payloadObj.timestamp || payloadObj.time || payloadObj.updatedAt || null;
         let ts = Date.now();
         if (possibleTs) {
             ts = typeof possibleTs === 'number'
@@ -434,11 +448,11 @@ function Analysis() {
             phase,
             status,
             timestamp: ts,
+            allocatedAt: allocatedAt,
             progress: Number.isFinite(Number(progress)) ? Number(progress) : (phase === TASK_PHASES.COMPLETED ? 100 : phase === TASK_PHASES.ASSIGNED ? 0 : status === 'Completed' ? 100 : null),
             startTime: startTs,
             completionTime: completionTs,
             elapsedMs,
-            priority: payloadObj.priority || payloadObj.task_priority || 'Normal',
             source,
             sourceLocation: sourceLocationName,
             destinationLocation: destLocationName,
@@ -548,13 +562,29 @@ function Analysis() {
                 }
             });
 
+            // 4. Include locally-persisted task history (captures ALL allocated tasks across sessions)
+            if (getLocalTaskHistory) {
+                const localHistory = getLocalTaskHistory(selectedDeviceId);
+                Object.entries(localHistory).forEach(([robotId, tasks]) => {
+                    if (!Array.isArray(tasks)) return;
+                    const robotInfo = deviceRobots.find(r => r.id === robotId) || { id: robotId, name: robotId };
+                    tasks.forEach(taskData => {
+                        const entry = parseTaskPayload(taskData, robotId, robotInfo, cutoff, 'local');
+                        if (entry) {
+                            if (!taskMap[robotId]) taskMap[robotId] = [];
+                            taskMap[robotId].push(entry);
+                        }
+                    });
+                });
+            }
+
             // Deduplicate per robot by taskId — prefer live source (most up-to-date progress)
             Object.keys(taskMap).forEach(robotId => {
                 const byKey = {};
                 // Sort so 'live' entries come first — they have the freshest progress
                 const prioritized = [...taskMap[robotId]].sort((a, b) => {
-                    const sourcePri = { live: 0, state: 1, stream: 2 };
-                    return (sourcePri[a.source] ?? 3) - (sourcePri[b.source] ?? 3);
+                    const sourcePri = { live: 0, state: 1, local: 2, stream: 3 };
+                    return (sourcePri[a.source] ?? 4) - (sourcePri[b.source] ?? 4);
                 });
                 prioritized.forEach(entry => {
                     const key = entry.taskId || `${entry.taskName}-${entry.robotId}-${Math.floor(entry.timestamp / 60000)}`;
@@ -587,7 +617,7 @@ function Analysis() {
         } finally {
             setHistoryLoading(false);
         }
-    }, [selectedDeviceId, deviceRobots, currentRobots, parseTaskPayload]);
+    }, [selectedDeviceId, deviceRobots, currentRobots, parseTaskPayload, getLocalTaskHistory]);
 
     // Delete a task: clear the robot's task topic by sending an empty payload
     const handleDeleteTask = useCallback(async (robotId, taskEntry) => {
@@ -1034,7 +1064,7 @@ function Analysis() {
                                 return !s.includes('complete') && !s.includes('done') && !s.includes('assigned') && s !== 'pending';
                             }
                             return true;
-                        }).sort((a, b) => b.timestamp - a.timestamp);
+                        }).sort((a, b) => (b.allocatedAt || b.timestamp) - (a.allocatedAt || a.timestamp));
 
                         // Get live robot state for status indicator
                         const liveRobot = currentRobots?.[robotId];
@@ -1126,12 +1156,11 @@ function Analysis() {
                                             <table style={styles.table}>
                                                 <thead>
                                                     <tr>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Timestamp</th>
+                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Allocated At</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Task Name</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Task ID</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Status</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Progress</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Priority</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Route</th>
                                                         <th style={{ ...styles.th, fontSize: '12px' }}>Source</th>
                                                         <th style={{ ...styles.th, fontSize: '12px', width: '50px', textAlign: 'center' }}>Actions</th>
@@ -1140,7 +1169,7 @@ function Analysis() {
                                                 <tbody>
                                                     {filteredTasks.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan="9" style={{ ...styles.td, textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
+                                                            <td colSpan="8" style={{ ...styles.td, textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
                                                                 {filter === 'all'
                                                                     ? `No tasks recorded for ${robot.name || robotId} in the last 24 hours`
                                                                     : `No ${filter} tasks for ${robot.name || robotId}`}
@@ -1173,7 +1202,8 @@ function Analysis() {
                                                         const sourceBadge = {
                                                             state: { bg: '#EDE9FE', color: '#6D28D9', label: 'State' },
                                                             stream: { bg: '#DBEAFE', color: '#1D4ED8', label: 'Stream' },
-                                                            live: { bg: '#D1FAE5', color: '#065F46', label: 'Live' }
+                                                            live: { bg: '#D1FAE5', color: '#065F46', label: 'Live' },
+                                                            local: { bg: '#FEF3C7', color: '#92400E', label: 'Local' }
                                                         }[row.source] || { bg: '#F3F4F6', color: '#6B7280', label: row.source || '?' };
 
                                                         return (
@@ -1182,10 +1212,16 @@ function Analysis() {
                                                                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                                                             >
                                                                 <td style={{ ...styles.td, fontSize: '12px', whiteSpace: 'nowrap' }}>
-                                                                    {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                                                                    <div style={{ fontSize: '10px', color: '#9CA3AF' }}>
-                                                                        {new Date(row.timestamp).toLocaleDateString()}
-                                                                    </div>
+                                                                    {row.allocatedAt ? (
+                                                                        <>
+                                                                            {new Date(row.allocatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                                                            <div style={{ fontSize: '10px', color: '#9CA3AF' }}>
+                                                                                {new Date(row.allocatedAt).toLocaleDateString()}
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span style={{ color: '#D1D5DB' }}>—</span>
+                                                                    )}
                                                                 </td>
                                                                 <td style={{ ...styles.td, fontSize: '12px' }}>
                                                                     <div style={{ fontWeight: '600', color: '#1F2937' }}>
@@ -1237,15 +1273,6 @@ function Analysis() {
                                                                     ) : (
                                                                         <span style={{ fontSize: '11px', color: '#D1D5DB' }}>—</span>
                                                                     )}
-                                                                </td>
-                                                                <td style={{ ...styles.td, fontSize: '12px' }}>
-                                                                    <span style={{
-                                                                        padding: '2px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: '600',
-                                                                        background: row.priority?.toLowerCase() === 'high' ? '#FEE2E2' : row.priority?.toLowerCase() === 'low' ? '#F3F4F6' : '#FEF3C7',
-                                                                        color: row.priority?.toLowerCase() === 'high' ? '#DC2626' : row.priority?.toLowerCase() === 'low' ? '#6B7280' : '#92400E'
-                                                                    }}>
-                                                                        {row.priority}
-                                                                    </span>
                                                                 </td>
                                                                 <td style={{ ...styles.td, fontSize: '11px', color: '#6B7280', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route !== '—' ? route : undefined}>
                                                                     {route}

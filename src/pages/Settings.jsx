@@ -13,16 +13,104 @@ import {
 import { useDevice } from '../contexts/DeviceContext';
 import { updateStateDetails } from '../services/api';
 import { ROOM_CENTERS, generateTaskId } from '../utils/telemetryMath';
+import {
+    getThresholds as getThresholdsShared,
+    getTemperatureStatus,
+    getHumidityStatus,
+    getPressureStatus
+} from '../utils/thresholds';
 
 // Default thresholds
 const DEFAULT_SETTINGS = {
     temperature: { min: 20, max: 40 },
     humidity: { min: 20, max: 70 },
     pressure: { min: 10, max: 40 },
-    battery: { min: 20 },
+    battery: { min: 20, critical: 10 },
     systemMode: 'MANUAL',
     robotSettings: {}
 };
+
+// ── Validation Rules ──────────────────────────────────────────────
+const VALIDATION_RULES = {
+    temperature: { absMin: -50, absMax: 100, unit: '°C' },
+    humidity:    { absMin: 0,   absMax: 100, unit: '%' },
+    pressure:    { absMin: 300, absMax: 1100, unit: 'hPa' },
+    battery:     { absMin: 0,   absMax: 100, unit: '%' },
+    robotTemp:   { absMin: -20, absMax: 120, unit: '°C' },
+};
+
+/**
+ * Validate all device/threshold settings.
+ * Returns an object keyed by "category.field" with error strings, or {} if valid.
+ */
+function validateSettings(s) {
+    const errors = {};
+    const r = VALIDATION_RULES;
+
+    // ── Temperature ──
+    const tMin = s.temperature?.min;
+    const tMax = s.temperature?.max;
+    if (tMin === '' || tMin == null) errors['temperature.min'] = 'Required';
+    else if (tMin < r.temperature.absMin || tMin > r.temperature.absMax)
+        errors['temperature.min'] = `Must be ${r.temperature.absMin}–${r.temperature.absMax} ${r.temperature.unit}`;
+    if (tMax === '' || tMax == null) errors['temperature.max'] = 'Required';
+    else if (tMax < r.temperature.absMin || tMax > r.temperature.absMax)
+        errors['temperature.max'] = `Must be ${r.temperature.absMin}–${r.temperature.absMax} ${r.temperature.unit}`;
+    if (tMin != null && tMax != null && tMin !== '' && tMax !== '' && Number(tMin) >= Number(tMax))
+        errors['temperature.min'] = (errors['temperature.min'] || '') + ' Min must be less than Max';
+
+    // ── Humidity ──
+    const hMin = s.humidity?.min;
+    const hMax = s.humidity?.max;
+    if (hMin === '' || hMin == null) errors['humidity.min'] = 'Required';
+    else if (hMin < r.humidity.absMin || hMin > r.humidity.absMax)
+        errors['humidity.min'] = `Must be ${r.humidity.absMin}–${r.humidity.absMax} ${r.humidity.unit}`;
+    if (hMax === '' || hMax == null) errors['humidity.max'] = 'Required';
+    else if (hMax < r.humidity.absMin || hMax > r.humidity.absMax)
+        errors['humidity.max'] = `Must be ${r.humidity.absMin}–${r.humidity.absMax} ${r.humidity.unit}`;
+    if (hMin != null && hMax != null && hMin !== '' && hMax !== '' && Number(hMin) >= Number(hMax))
+        errors['humidity.min'] = (errors['humidity.min'] || '') + ' Min must be less than Max';
+
+    // ── Pressure ──
+    const pMin = s.pressure?.min;
+    const pMax = s.pressure?.max;
+    if (pMin === '' || pMin == null) errors['pressure.min'] = 'Required';
+    else if (pMin < r.pressure.absMin || pMin > r.pressure.absMax)
+        errors['pressure.min'] = `Must be ${r.pressure.absMin}–${r.pressure.absMax} ${r.pressure.unit}`;
+    if (pMax === '' || pMax == null) errors['pressure.max'] = 'Required';
+    else if (pMax < r.pressure.absMin || pMax > r.pressure.absMax)
+        errors['pressure.max'] = `Must be ${r.pressure.absMin}–${r.pressure.absMax} ${r.pressure.unit}`;
+    if (pMin != null && pMax != null && pMin !== '' && pMax !== '' && Number(pMin) >= Number(pMax))
+        errors['pressure.min'] = (errors['pressure.min'] || '') + ' Min must be less than Max';
+
+    // ── Battery ──
+    const bWarn = s.battery?.min;
+    const bCrit = s.battery?.critical;
+    if (bWarn === '' || bWarn == null) errors['battery.min'] = 'Required';
+    else if (bWarn < r.battery.absMin || bWarn > r.battery.absMax)
+        errors['battery.min'] = `Must be ${r.battery.absMin}–${r.battery.absMax} ${r.battery.unit}`;
+    if (bCrit === '' || bCrit == null) errors['battery.critical'] = 'Required';
+    else if (bCrit < r.battery.absMin || bCrit > r.battery.absMax)
+        errors['battery.critical'] = `Must be ${r.battery.absMin}–${r.battery.absMax} ${r.battery.unit}`;
+    if (bWarn != null && bCrit != null && bWarn !== '' && bCrit !== '' && Number(bCrit) >= Number(bWarn))
+        errors['battery.critical'] = (errors['battery.critical'] || '') + ' Critical must be less than Warning';
+
+    // ── Robot Temperature ──
+    const rtMin = s.robotThresholds?.tempMin;
+    const rtMax = s.robotThresholds?.tempMax;
+    if (rtMin != null && rtMin !== '') {
+        if (rtMin < r.robotTemp.absMin || rtMin > r.robotTemp.absMax)
+            errors['robotTemp.min'] = `Must be ${r.robotTemp.absMin}–${r.robotTemp.absMax} ${r.robotTemp.unit}`;
+    }
+    if (rtMax != null && rtMax !== '') {
+        if (rtMax < r.robotTemp.absMin || rtMax > r.robotTemp.absMax)
+            errors['robotTemp.max'] = `Must be ${r.robotTemp.absMin}–${r.robotTemp.absMax} ${r.robotTemp.unit}`;
+    }
+    if (rtMin != null && rtMax != null && rtMin !== '' && rtMax !== '' && Number(rtMin) >= Number(rtMax))
+        errors['robotTemp.min'] = (errors['robotTemp.min'] || '') + ' Min must be less than Max';
+
+    return errors;
+}
 
 // Load settings from localStorage
 const loadSettings = () => {
@@ -87,6 +175,15 @@ function Settings() {
     const [robotSaveMessage, setRobotSaveMessage] = useState(null);
     const [isMobile, setIsMobile] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [validationErrors, setValidationErrors] = useState({});
+    const [showValidation, setShowValidation] = useState(false);
+
+    // Re-validate whenever settings change (only show if user already attempted save)
+    useEffect(() => {
+        if (showValidation) {
+            setValidationErrors(validateSettings(settings));
+        }
+    }, [settings, showValidation]);
 
     // 3. Derived Data
     // Safely extract current environment values from streaming device data
@@ -102,45 +199,6 @@ function Settings() {
         if (key === 'pressure') return env.pressure ?? env.atmospheric_pressure ?? env.atm_pressure ?? env.atmosphericPressure ?? null;
         return null;
     };
-
-    // Status helpers (match logic used in DeviceEnvironmentPanel)
-    const getTemperatureStatus = (temp) => {
-        const thresholds = getThresholdsLocal();
-        if (temp == null) return 'normal';
-        if (temp > thresholds.temperature.critical) return 'critical';
-        if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) return 'warning';
-        return 'normal';
-    };
-
-    const getHumidityStatus = (hum) => {
-        const thresholds = getThresholdsLocal();
-        if (hum == null) return 'normal';
-        if (hum > thresholds.humidity.critical) return 'critical';
-        if (hum > thresholds.humidity.max || hum < thresholds.humidity.min) return 'warning';
-        return 'normal';
-    };
-
-    const getPressureStatus = (p) => {
-        const thresholds = getThresholdsLocal();
-        if (p == null) return 'normal';
-        if (p < thresholds.pressure.min || p > thresholds.pressure.max) return 'critical';
-        if (p < (thresholds.pressure.min + 10) || p > (thresholds.pressure.max - 10)) return 'warning';
-        return 'normal';
-    };
-
-    // Read thresholds from localStorage saved settings or fallback to defaults
-    function getThresholdsLocal() {
-        try {
-            const saved = localStorage.getItem('fabrix_settings');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                return parsed.thresholds || { temperature: { min: 18, max: 28, critical: 32 }, humidity: { min: 30, max: 60, critical: 75 }, pressure: { min: 980, max: 1040 } };
-            }
-        } catch (e) {
-            // ignore and fall through
-        }
-        return { temperature: { min: 18, max: 28, critical: 32 }, humidity: { min: 30, max: 60, critical: 75 }, pressure: { min: 980, max: 1040 } };
-    }
 
     const getValueColorStyle = (status) => {
         switch (status) {
@@ -192,14 +250,45 @@ function Settings() {
         }));
     };
 
-    // Save Device Settings (Local + API for System Mode)
+    // Save Device Settings (Local + API for System Mode) — with validation
     const handleSaveDeviceSettings = async () => {
-        saveSettingsToStorage(settings);
+        setShowValidation(true);
+        const errors = validateSettings(settings);
+        setValidationErrors(errors);
+
+        if (Object.keys(errors).length > 0) {
+            setDeviceSaveMessage({ type: 'error', text: 'Please fix the highlighted errors before saving.' });
+            setTimeout(() => setDeviceSaveMessage(null), 4000);
+            return;
+        }
+
+        // Build the thresholds object used by DeviceContext for severity computation
+        const thresholds = {
+            temperature: {
+                min: Number(settings.temperature.min),
+                max: Number(settings.temperature.max),
+                critical: Number(settings.temperature.max) + 4,
+            },
+            humidity: {
+                min: Number(settings.humidity.min),
+                max: Number(settings.humidity.max),
+                critical: Number(settings.humidity.max) + 15,
+            },
+            pressure: {
+                min: Number(settings.pressure.min),
+                max: Number(settings.pressure.max),
+            },
+            battery: {
+                low: Number(settings.battery.min),
+                critical: Number(settings.battery.critical ?? 10),
+            },
+        };
+
+        saveSettingsToStorage({ ...settings, thresholds });
 
         // If System Mode changed, sync it to the cloud
         if (settings.systemMode && selectedDeviceId) {
             try {
-                // Topic suffix for system mode
                 const topic = 'settings/systemMode';
                 const payload = { mode: settings.systemMode };
                 await updateStateDetails(selectedDeviceId, topic, payload);
@@ -208,6 +297,7 @@ function Settings() {
             }
         }
 
+        setShowValidation(false);
         setDeviceSaveMessage({ type: 'success', text: 'Device settings saved!' });
         setTimeout(() => setDeviceSaveMessage(null), 3000);
     };
@@ -241,6 +331,7 @@ function Settings() {
                     robotId: robotId,
                     task_type: 'Deliver',
                     task_id: taskId,
+                    assignedAt: new Date().toISOString(),
                     'initiate location': config.source || 'Unknown',
                     destination: config.destination || 'Unknown',
                     // Include lat/lng when available so downstream systems can route precisely
@@ -403,9 +494,9 @@ function Settings() {
                 {/* Expanded Threshold Cards - Device + Robot Sensors */}
                 <div className="settings-threshold-grid">
                     {[
-                        { title: 'Temperature', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature' },
-                        { title: 'Humidity', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity' },
-                        { title: 'Pressure', fields: [{ l: 'Min (hPa)', k: 'min' }, { l: 'Max (hPa)', k: 'max' }], key: 'pressure' }
+                        { title: 'Temperature', fields: [{ l: 'Min (°C)', k: 'min' }, { l: 'Max (°C)', k: 'max' }], key: 'temperature', rule: VALIDATION_RULES.temperature },
+                        { title: 'Humidity', fields: [{ l: 'Min (%)', k: 'min' }, { l: 'Max (%)', k: 'max' }], key: 'humidity', rule: VALIDATION_RULES.humidity },
+                        { title: 'Pressure', fields: [{ l: 'Min (hPa)', k: 'min' }, { l: 'Max (hPa)', k: 'max' }], key: 'pressure', rule: VALIDATION_RULES.pressure }
                     ].map((card) => {
                         const raw = getMetricValue(card.key);
                         let formatted;
@@ -426,28 +517,38 @@ function Settings() {
                                 <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
                                     <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0 }}>{card.title}</h3>
                                     <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
+                                    <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Range: {card.rule.absMin} – {card.rule.absMax} {card.rule.unit}</p>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                                    {card.fields.map(f => (
-                                        <div key={f.k}>
-                                            <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{f.l}</label>
-                                            <input
-                                                type="number"
-                                                step="0.1"
-                                                value={settings[card.key]?.[f.k] ?? ''}
-                                                onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value === '' ? '' : Number(e.target.value))}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '8px 10px',
-                                                    background: '#F3F4F6',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    fontSize: '13px',
-                                                    fontWeight: '600'
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
+                                    {card.fields.map(f => {
+                                        const errKey = `${card.key}.${f.k}`;
+                                        const hasError = showValidation && validationErrors[errKey];
+                                        return (
+                                            <div key={f.k}>
+                                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{f.l}</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.1"
+                                                    value={settings[card.key]?.[f.k] ?? ''}
+                                                    onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value === '' ? '' : Number(e.target.value))}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px 10px',
+                                                        background: hasError ? '#FEF2F2' : '#F3F4F6',
+                                                        border: hasError ? '1.5px solid #EF4444' : '1.5px solid transparent',
+                                                        borderRadius: '8px',
+                                                        fontSize: '13px',
+                                                        fontWeight: '600',
+                                                        outline: 'none',
+                                                        transition: 'border 0.2s, background 0.2s'
+                                                    }}
+                                                />
+                                                {hasError && (
+                                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors[errKey]}</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         );
@@ -461,6 +562,7 @@ function Settings() {
                                 <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
                             </h3>
                             <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Battery levels</p>
+                            <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Warning must be greater than Critical (0–100%)</p>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                             <div>
@@ -468,34 +570,44 @@ function Settings() {
                                 <input
                                     type="number"
                                     value={settings.battery?.min ?? 20}
-                                    onChange={(e) => updateDeviceSetting('battery', 'min', Number(e.target.value))}
+                                    onChange={(e) => updateDeviceSetting('battery', 'min', e.target.value === '' ? '' : Number(e.target.value))}
                                     style={{
                                         width: '100%',
                                         padding: '8px 10px',
-                                        background: '#F3F4F6',
-                                        border: 'none',
+                                        background: (showValidation && validationErrors['battery.min']) ? '#FEF2F2' : '#F3F4F6',
+                                        border: (showValidation && validationErrors['battery.min']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
                                         borderRadius: '8px',
                                         fontSize: '13px',
-                                        fontWeight: '600'
+                                        fontWeight: '600',
+                                        outline: 'none',
+                                        transition: 'border 0.2s, background 0.2s'
                                     }}
                                 />
+                                {showValidation && validationErrors['battery.min'] && (
+                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['battery.min']}</p>
+                                )}
                             </div>
                             <div>
                                 <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Critical (%)</label>
                                 <input
                                     type="number"
                                     value={settings.battery?.critical ?? 10}
-                                    onChange={(e) => updateDeviceSetting('battery', 'critical', Number(e.target.value))}
+                                    onChange={(e) => updateDeviceSetting('battery', 'critical', e.target.value === '' ? '' : Number(e.target.value))}
                                     style={{
                                         width: '100%',
                                         padding: '8px 10px',
-                                        background: '#F3F4F6',
-                                        border: 'none',
+                                        background: (showValidation && validationErrors['battery.critical']) ? '#FEF2F2' : '#F3F4F6',
+                                        border: (showValidation && validationErrors['battery.critical']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
                                         borderRadius: '8px',
                                         fontSize: '13px',
-                                        fontWeight: '600'
+                                        fontWeight: '600',
+                                        outline: 'none',
+                                        transition: 'border 0.2s, background 0.2s'
                                     }}
                                 />
+                                {showValidation && validationErrors['battery.critical'] && (
+                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['battery.critical']}</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -508,6 +620,7 @@ function Settings() {
                                 <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
                             </h3>
                             <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Motor/body temp</p>
+                            <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Range: {VALIDATION_RULES.robotTemp.absMin} – {VALIDATION_RULES.robotTemp.absMax} {VALIDATION_RULES.robotTemp.unit}</p>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                             <div>
@@ -519,19 +632,24 @@ function Settings() {
                                         ...prev,
                                         robotThresholds: {
                                             ...prev.robotThresholds,
-                                            tempMin: Number(e.target.value)
+                                            tempMin: e.target.value === '' ? '' : Number(e.target.value)
                                         }
                                     }))}
                                     style={{
                                         width: '100%',
                                         padding: '8px 10px',
-                                        background: '#F3F4F6',
-                                        border: 'none',
+                                        background: (showValidation && validationErrors['robotTemp.min']) ? '#FEF2F2' : '#F3F4F6',
+                                        border: (showValidation && validationErrors['robotTemp.min']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
                                         borderRadius: '8px',
                                         fontSize: '13px',
-                                        fontWeight: '600'
+                                        fontWeight: '600',
+                                        outline: 'none',
+                                        transition: 'border 0.2s, background 0.2s'
                                     }}
                                 />
+                                {showValidation && validationErrors['robotTemp.min'] && (
+                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['robotTemp.min']}</p>
+                                )}
                             </div>
                             <div>
                                 <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Max (°C)</label>
@@ -542,19 +660,24 @@ function Settings() {
                                         ...prev,
                                         robotThresholds: {
                                             ...prev.robotThresholds,
-                                            tempMax: Number(e.target.value)
+                                            tempMax: e.target.value === '' ? '' : Number(e.target.value)
                                         }
                                     }))}
                                     style={{
                                         width: '100%',
                                         padding: '8px 10px',
-                                        background: '#F3F4F6',
-                                        border: 'none',
+                                        background: (showValidation && validationErrors['robotTemp.max']) ? '#FEF2F2' : '#F3F4F6',
+                                        border: (showValidation && validationErrors['robotTemp.max']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
                                         borderRadius: '8px',
                                         fontSize: '13px',
-                                        fontWeight: '600'
+                                        fontWeight: '600',
+                                        outline: 'none',
+                                        transition: 'border 0.2s, background 0.2s'
                                     }}
                                 />
+                                {showValidation && validationErrors['robotTemp.max'] && (
+                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['robotTemp.max']}</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -563,8 +686,17 @@ function Settings() {
                 {/* Save Message & Action */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {deviceSaveMessage && (
-                        <div style={{ padding: '12px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>
-                            <CheckCircle size={18} />
+                        <div style={{
+                            padding: '12px 16px',
+                            borderRadius: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: deviceSaveMessage.type === 'error' ? '#FEF2F2' : '#F0FDF4',
+                            color: deviceSaveMessage.type === 'error' ? '#DC2626' : '#15803D',
+                            border: deviceSaveMessage.type === 'error' ? '1px solid #FECACA' : '1px solid #BBF7D0'
+                        }}>
+                            {deviceSaveMessage.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
                             {deviceSaveMessage.text}
                         </div>
                     )}
@@ -794,6 +926,11 @@ function Settings() {
                                                     setTimeout(() => setRobotSaveMessage(null), 3000);
                                                     return;
                                                 }
+                                                if (config.source === config.destination) {
+                                                    setRobotSaveMessage({ type: 'error', text: `Source and destination cannot be the same for ${displayId}` });
+                                                    setTimeout(() => setRobotSaveMessage(null), 3000);
+                                                    return;
+                                                }
 
                                                 if (!selectedDeviceId) {
                                                     setRobotSaveMessage({ type: 'error', text: 'No device selected for sync.' });
@@ -811,6 +948,7 @@ function Settings() {
                                                         task_type: 'Deliver',
                                                         task_id: taskId,
                                                         status: 'Assigned',
+                                                        assignedAt: new Date().toISOString(),
                                                         'initiate location': config.source || 'Unknown',
                                                         destination: config.destination || 'Unknown',
                                                         source_lat: srcCoords?.lat ?? null,
@@ -872,8 +1010,17 @@ function Settings() {
                 {/* Robot Fleet Save Message */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: 12 }}>
                     {robotSaveMessage && (
-                        <div style={{ padding: '12px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>
-                            <CheckCircle size={18} />
+                        <div style={{
+                            padding: '12px 16px',
+                            borderRadius: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: robotSaveMessage.type === 'error' ? '#FEF2F2' : '#F0FDF4',
+                            color: robotSaveMessage.type === 'error' ? '#DC2626' : '#15803D',
+                            border: robotSaveMessage.type === 'error' ? '1px solid #FECACA' : '1px solid #BBF7D0'
+                        }}>
+                            {robotSaveMessage.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
                             {robotSaveMessage.text}
                         </div>
                     )}

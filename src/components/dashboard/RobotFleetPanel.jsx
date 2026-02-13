@@ -9,60 +9,27 @@ import {
     Clock,
     Zap,
     RefreshCw,
-    Loader2
+    Loader2,
+    ShieldAlert
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
 import { computeRobotHealth, PHASE_LABELS, PHASE_COLORS, TASK_PHASES } from '../../utils/telemetryMath';
+import {
+    getRobotTempStatus,
+    getBatteryStatus,
+    computeRobotHealthFromSettings
+} from '../../utils/thresholds';
 
 function RobotCard({ robot }) {
-    // compute robot health from battery percentage
+    // compute robot health from battery percentage using user-defined thresholds
     const batteryValue = robot.status?.battery ?? robot.status?.battery_pct ?? robot.battery_pct ?? robot.battery;
-    const health = computeRobotHealth(batteryValue);
+    const health = computeRobotHealthFromSettings(batteryValue);
 
 
     const getTempStatus = () => {
-        const userTemp = getUserTempOverride(robot.id);
-        const temp = userTemp ?? robot.environment?.temp;
-        const thresholds = getThresholdsLocal();
-        if (temp == null) return 'normal';
-        // Treat values above critical OR below min as critical (show red)
-        if (temp > thresholds.temperature.critical) return 'critical';
-        if (temp < thresholds.temperature.min) return 'critical';
-        if (temp > thresholds.temperature.max) return 'warning';
-        return 'normal';
+        const temp = robot.environment?.temp;
+        return getRobotTempStatus(temp);
     };
-
-    // Read per-robot temp override from saved settings in localStorage (if user provided)
-    function getUserTempOverride(robotId) {
-        try {
-            const saved = localStorage.getItem('fabrix_settings');
-            if (!saved) return null;
-            const parsed = JSON.parse(saved);
-            const robotSettings = parsed.robotSettings || {};
-            const cfg = robotSettings[robotId] || {};
-            // Support several possible keys used by the settings UI
-            const v = cfg.temp ?? cfg.tempOverride ?? cfg.tempCurrent ?? cfg.tempMin ?? null;
-            if (v == null || v === '') return null;
-            const n = Number(v);
-            return Number.isFinite(n) ? n : null;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    // Read thresholds from localStorage saved settings or fallback to defaults
-    function getThresholdsLocal() {
-        try {
-            const saved = localStorage.getItem('fabrix_settings');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                return parsed.thresholds || { temperature: { min: 18, max: 28, critical: 32 } };
-            }
-        } catch (e) {
-            // ignore
-        }
-        return { temperature: { min: 18, max: 28, critical: 32 } };
-    }
 
     const getStateIcon = () => {
         const state = robot.status?.state;
@@ -76,6 +43,8 @@ function RobotCard({ robot }) {
                 return <Clock size={14} className="text-gray-400" />;
             case 'ERROR':
                 return <AlertTriangle size={14} className="text-red-500" />;
+            case 'BLOCKED':
+                return <ShieldAlert size={14} className="text-orange-500 animate-pulse" />;
             default:
                 return <CheckCircle size={14} className="text-gray-400" />;
         }
@@ -91,25 +60,17 @@ function RobotCard({ robot }) {
                 return 'border-green-500 bg-green-50';
             case 'ERROR':
                 return 'border-red-500 bg-red-50';
+            case 'BLOCKED':
+                return 'border-orange-500 bg-orange-50';
             default:
                 return 'border-gray-300 bg-white';
         }
     };
 
-    const batteryStatus = health.label.toLowerCase();
+    const batteryStatus = health.status;
     const tempStatus = getTempStatus();
 
-    // Map battery label to severity used by UI ('normal'|'warning'|'critical')
-    const mapBatteryToSeverity = (label) => {
-        if (!label) return 'normal';
-        const l = String(label).toLowerCase();
-        if (l === 'good') return 'normal';
-        if (l === 'fair' || l === 'low') return 'warning';
-        if (l === 'critical') return 'critical';
-        return 'normal';
-    };
-
-    const batterySeverity = mapBatteryToSeverity(batteryStatus);
+    const batterySeverity = health.status;
 
     const getDotStyle = (severity) => {
         switch (severity) {
@@ -187,6 +148,19 @@ function RobotCard({ robot }) {
                 )}
             </div>
 
+            {/* Collision / Blocked Banner */}
+            {robot.status?.state === 'BLOCKED' && (
+                <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-lg bg-orange-100 border border-orange-300">
+                    <ShieldAlert size={14} className="text-orange-600 shrink-0 animate-pulse" />
+                    <span className="text-xs font-semibold text-orange-700">
+                        Collision risk — Movement paused
+                        {robot.status?.blockedBy?.length > 0 && (
+                            <span className="font-normal text-orange-600"> (near {robot.status.blockedBy.join(', ')})</span>
+                        )}
+                    </span>
+                </div>
+            )}
+
             {/* Metrics Grid */}
             <div className="grid grid-cols-2 gap-0.5 md:gap-1">
                 {/* Battery */}
@@ -217,8 +191,8 @@ function RobotCard({ robot }) {
                         <span className="text-xs text-gray-500">Temp</span>
                         <span style={getDotStyle(tempStatus)} title={`Temp status: ${tempStatus}`} />
                     </div>
-                    <p className="text-sm font-semibold" style={tempStatus === 'critical' ? { color: '#DC2626' } : { color: '#16A34A' }}>
-                        {(getUserTempOverride(robot.id) ?? robot.environment?.temp) != null ? ((getUserTempOverride(robot.id) ?? robot.environment?.temp).toFixed(1)) : '--'}°C
+                    <p className="text-sm font-semibold" style={tempStatus === 'critical' ? { color: '#DC2626' } : tempStatus === 'warning' ? { color: '#D97706' } : { color: '#16A34A' }}>
+                        {robot.environment?.temp != null ? (robot.environment.temp.toFixed(1)) : '--'}°C
                     </p>
                 </div>
 

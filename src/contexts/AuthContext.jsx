@@ -1,9 +1,10 @@
 /**
- * Authentication Context (Cookie-Based)
- * 
+ * Authentication Context (JWT + HTTP-only Cookie)
+ *
  * Auto-login on app mount.
- * The server manages session via HTTP-only cookies.
- * We track "is authenticated" via a localStorage flag.
+ * The JWT is stored in localStorage (via authService) and exposed
+ * through this context so components / DeviceContext can read it.
+ * HTTP-only cookies (refresh token) are managed by the browser.
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
@@ -12,7 +13,6 @@ import { login, getToken, clearTokens } from '../services/authService';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-    // getToken() returns the auth flag string, or null
     const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
             console.log('🚀 APP STARTED - Initiating auto-login...');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-            // Always do a fresh login to get a fresh session cookie
+            // Always do a fresh login to get a fresh JWT + cookies
             console.log('📭 Performing fresh login...');
             try {
                 const success = await login();
@@ -74,7 +74,8 @@ export function AuthProvider({ children }) {
     };
 
     const value = {
-        token: isAuthenticated ? 'COOKIE_SESSION' : null,
+        // Expose the actual JWT (or cookie flag) so consumers can use it
+        token: getToken(),
         isAuthenticated,
         isLoading,
         error,

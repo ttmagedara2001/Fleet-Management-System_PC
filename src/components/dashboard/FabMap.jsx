@@ -1,20 +1,34 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useDevice } from '../../contexts/DeviceContext';
+import { gpsToPercent, ROOM_CENTERS, resolveRoom } from '../../utils/telemetryMath';
 
-// Fab layout zones configuration
+// ── Map constants ──
+const MAP_WIDTH = 750;
+const MAP_HEIGHT = 500;
+
+/** Convert GPS lat/lng → SVG pixel coordinates (aligned with telemetryMath rooms). */
+function gpsToSvg(lat, lng) {
+    const { xPercent, yPercent } = gpsToPercent(lat, lng);
+    return {
+        x: (xPercent / 100) * MAP_WIDTH,
+        y: (yPercent / 100) * MAP_HEIGHT,
+    };
+}
+
+// Zone positions derived from telemetryMath ROOMS (percentage → SVG pixels)
+// This ensures room geofencing and map rendering are perfectly aligned.
 const ZONES = [
-    { id: 'cleanroom-a', name: 'Cleanroom A', x: 50, y: 50, width: 300, height: 200, type: 'cleanroom' },
-    { id: 'cleanroom-b', name: 'Cleanroom B', x: 400, y: 50, width: 300, height: 200, type: 'cleanroom' },
-    { id: 'loading-bay', name: 'Loading Bay', x: 50, y: 300, width: 200, height: 150, type: 'loading' },
-    { id: 'storage', name: 'Storage', x: 300, y: 300, width: 200, height: 150, type: 'storage' },
-    { id: 'maintenance', name: 'Maintenance', x: 550, y: 300, width: 150, height: 150, type: 'storage' },
+    { id: 'cleanroom-a', name: 'Cleanroom A', x: 0.05 * MAP_WIDTH, y: 0.05 * MAP_HEIGHT, width: 0.35 * MAP_WIDTH, height: 0.40 * MAP_HEIGHT, type: 'cleanroom' },
+    { id: 'cleanroom-b', name: 'Cleanroom B', x: 0.45 * MAP_WIDTH, y: 0.05 * MAP_HEIGHT, width: 0.30 * MAP_WIDTH, height: 0.40 * MAP_HEIGHT, type: 'cleanroom' },
+    { id: 'loading-bay', name: 'Loading Bay',  x: 0.05 * MAP_WIDTH, y: 0.55 * MAP_HEIGHT, width: 0.25 * MAP_WIDTH, height: 0.35 * MAP_HEIGHT, type: 'loading' },
+    { id: 'storage',     name: 'Storage',      x: 0.35 * MAP_WIDTH, y: 0.55 * MAP_HEIGHT, width: 0.25 * MAP_WIDTH, height: 0.35 * MAP_HEIGHT, type: 'storage' },
+    { id: 'maintenance', name: 'Maintenance',  x: 0.65 * MAP_WIDTH, y: 0.55 * MAP_HEIGHT, width: 0.25 * MAP_WIDTH, height: 0.25 * MAP_HEIGHT, type: 'storage' },
 ];
 
-// Aisles
+// Aisles between zones (horizontal corridor between top and bottom rows)
 const AISLES = [
-    { id: 'aisle-1', points: '200,250 200,300 350,300 350,250', name: 'Aisle 1' },
-    { id: 'aisle-2', points: '350,50 350,300', name: 'Aisle 2', isVertical: true },
-    { id: 'aisle-3', points: '50,250 750,250', name: 'Aisle 3', isHorizontal: true },
+    { id: 'aisle-h', points: `${0.05 * MAP_WIDTH},${0.48 * MAP_HEIGHT} ${0.90 * MAP_WIDTH},${0.48 * MAP_HEIGHT}`, name: 'Main Corridor', isHorizontal: true },
+    { id: 'aisle-v', points: `${0.40 * MAP_WIDTH},${0.05 * MAP_HEIGHT} ${0.40 * MAP_WIDTH},${0.90 * MAP_HEIGHT}`, name: 'Vertical Aisle', isVertical: true },
 ];
 
 function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
@@ -34,9 +48,13 @@ function RobotMarker({ robot, isSelected, onClick, markerSize = 18 }) {
         return 'bg-gray-400';
     };
 
-    // Convert lat/lng to map coordinates (simplified transformation)
-    const x = 100 + (robot.location?.lng || 0) * 500;
-    const y = 100 + (robot.location?.lat || 0) * 300;
+    // Convert GPS lat/lng to SVG pixel coordinates via gpsToPercent
+    const hasGps = robot.location?.lat != null && robot.location?.lng != null;
+    const pos = hasGps
+        ? gpsToSvg(robot.location.lat, robot.location.lng)
+        : { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 }; // center fallback
+    const x = pos.x;
+    const y = pos.y;
     const heading = robot.heading || 0;
 
     return (
@@ -166,7 +184,7 @@ function ZoneComponent({ zone }) {
 function FabMap() {
     const { currentRobots, selectedDeviceId, currentDeviceData } = useDevice();
     const [selectedRobotId, setSelectedRobotId] = useState(null);
-    const [mapDimensions] = useState({ width: 750, height: 500 });
+    const [mapDimensions] = useState({ width: MAP_WIDTH, height: MAP_HEIGHT });
     const [isMobile, setIsMobile] = useState(false);
     const [isPortrait, setIsPortrait] = useState(false);
 
@@ -204,12 +222,10 @@ function FabMap() {
         };
     }, []);
 
-    // Determine which configured zone a coordinate belongs to
+    // Determine which configured zone a robot belongs to
     function getZoneForRobot(robot) {
-        if (!robot || !robot.location) return null;
-        const x = 100 + (robot.location?.lng || 0) * 500;
-        const y = 100 + (robot.location?.lat || 0) * 300;
-
+        if (!robot?.location?.lat || !robot?.location?.lng) return null;
+        const { x, y } = gpsToSvg(robot.location.lat, robot.location.lng);
         for (const zone of ZONES) {
             if (x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height) {
                 return zone;
@@ -226,8 +242,11 @@ function FabMap() {
         const scaleY = miniH / mapDimensions.height;
         const zone = getZoneForRobot(robot);
 
-        const robotX = robot ? 100 + (robot.location?.lng || 0) * 500 : null;
-        const robotY = robot ? 100 + (robot.location?.lat || 0) * 300 : null;
+        const robotPos = (robot?.location?.lat != null && robot?.location?.lng != null)
+            ? gpsToSvg(robot.location.lat, robot.location.lng)
+            : null;
+        const robotX = robotPos?.x ?? null;
+        const robotY = robotPos?.y ?? null;
 
         return (
             <div className="mini-grid">
@@ -407,27 +426,75 @@ function FabMap() {
                             />
                         ))}
 
-                        {/* Task routes - draw dotted lines for active tasks */}
+                        {/* Task routes — source→destination dotted lines */}
                         {robots.map(robot => {
-                            if (!robot.task?.source && !robot.task?.destination) return null;
+                            if (!robot.task) return null;
+                            const srcName = robot.task['initiate location'] || robot.task.source_name;
+                            const dstName = robot.task.destination || robot.task.destination_name;
+                            if (!srcName && !dstName) return null;
 
-                            const startX = 100 + (robot.location?.lng || 0) * 500;
-                            const startY = 100 + (robot.location?.lat || 0) * 300;
-                            // Mock destination (would come from task data)
-                            const endX = startX + 100;
-                            const endY = startY + 50;
+                            // Resolve room GPS centers
+                            const srcResolved = srcName ? resolveRoom(srcName) : null;
+                            const dstResolved = dstName ? resolveRoom(dstName) : null;
+                            const srcCenter = srcResolved?.room?.center;
+                            const dstCenter = dstResolved?.room?.center;
 
-                            return (
-                                <path
-                                    key={`route-${robot.id}`}
-                                    d={`M ${startX} ${startY} L ${endX} ${endY}`}
-                                    stroke="#9333ea"
-                                    strokeWidth="2"
-                                    strokeDasharray="6 4"
-                                    fill="none"
-                                    opacity="0.6"
-                                />
-                            );
+                            // Robot current position
+                            const hasGps = robot.location?.lat != null && robot.location?.lng != null;
+                            const robotSvg = hasGps ? gpsToSvg(robot.location.lat, robot.location.lng) : null;
+
+                            // Source and destination SVG positions
+                            const srcSvg = srcCenter ? gpsToSvg(srcCenter.lat, srcCenter.lng) : null;
+                            const dstSvg = dstCenter ? gpsToSvg(dstCenter.lat, dstCenter.lng) : null;
+
+                            const segments = [];
+                            // Faint full route: source → destination
+                            if (srcSvg && dstSvg) {
+                                segments.push(
+                                    <path
+                                        key={`full-route-${robot.id}`}
+                                        d={`M ${srcSvg.x} ${srcSvg.y} L ${dstSvg.x} ${dstSvg.y}`}
+                                        stroke="#9333ea"
+                                        strokeWidth="1.5"
+                                        strokeDasharray="4 6"
+                                        fill="none"
+                                        opacity="0.3"
+                                    />
+                                );
+                            }
+                            // Active leg: robot → current target
+                            if (robotSvg) {
+                                const targetSvg = (robot.task.phase === 'EN_ROUTE_TO_SOURCE' || robot.task.phase === 'ASSIGNED')
+                                    ? srcSvg : dstSvg;
+                                if (targetSvg) {
+                                    segments.push(
+                                        <path
+                                            key={`active-route-${robot.id}`}
+                                            d={`M ${robotSvg.x} ${robotSvg.y} L ${targetSvg.x} ${targetSvg.y}`}
+                                            stroke="#9333ea"
+                                            strokeWidth="2"
+                                            strokeDasharray="6 4"
+                                            fill="none"
+                                            opacity="0.6"
+                                        />
+                                    );
+                                }
+                            }
+                            // Source marker (small circle)
+                            if (srcSvg) {
+                                segments.push(
+                                    <circle key={`src-${robot.id}`} cx={srcSvg.x} cy={srcSvg.y} r={5} fill="#22c55e" stroke="#fff" strokeWidth={1.5} opacity={0.8} />
+                                );
+                            }
+                            // Destination marker (small diamond)
+                            if (dstSvg) {
+                                segments.push(
+                                    <rect key={`dst-${robot.id}`} x={dstSvg.x - 5} y={dstSvg.y - 5} width={10} height={10} rx={2}
+                                        fill="#ef4444" stroke="#fff" strokeWidth={1.5} opacity={0.8}
+                                        transform={`rotate(45, ${dstSvg.x}, ${dstSvg.y})`} />
+                                );
+                            }
+                            return <g key={`route-group-${robot.id}`}>{segments}</g>;
                         })}
 
                         {/* Robots */}
@@ -499,7 +566,7 @@ function FabMap() {
                                 <div className="pt-2 border-t border-gray-100">
                                     <p className="text-xs text-gray-400">Current Task</p>
                                     <p className="font-medium text-primary-600 text-xs">
-                                        {selectedRobot.task.type}: {selectedRobot.task.source} → {selectedRobot.task.destination}
+                                        {selectedRobot.task.task_type || selectedRobot.task.type || 'Deliver'}: {selectedRobot.task['initiate location'] || selectedRobot.task.source_name || '?'} → {selectedRobot.task.destination || selectedRobot.task.destination_name || '?'}
                                     </p>
                                 </div>
                             )}

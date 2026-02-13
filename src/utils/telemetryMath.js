@@ -187,6 +187,11 @@ export function haversineDistance(lat1, lng1, lat2, lng2) {
 export const ARRIVAL_THRESHOLD_M = 15; // 15 metres
 
 /**
+ * Collision threshold in metres — two robots are considered colliding if within this distance.
+ */
+export const COLLISION_THRESHOLD_M = 3; // 3 metres
+
+/**
  * Auto-advance from PICKING_UP / DELIVERING after this delay (ms).
  * Simulates pickup/delivery confirmation when no firmware ACK available.
  */

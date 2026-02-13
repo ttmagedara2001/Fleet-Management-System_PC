@@ -10,6 +10,11 @@ import {
     Activity
 } from 'lucide-react';
 import { useDevice } from '../../contexts/DeviceContext';
+import {
+    getTemperatureStatus,
+    getHumidityStatus,
+    getPressureStatus
+} from '../../utils/thresholds';
 
 function MetricCard({ icon: Icon, label, value, unit, status = 'normal', trend }) {
     const getStatusColor = () => {
@@ -99,58 +104,12 @@ function DeviceEnvironmentPanel() {
     const env = currentDeviceData?.environment || {};
     const state = currentDeviceData?.state || {};
 
-    const getTemperatureStatus = (temp) => {
-        const thresholds = getThresholdsLocal();
-        if (temp == null) return 'normal';
-        if (temp > thresholds.temperature.critical) return 'critical';
-        if (temp > thresholds.temperature.max || temp < thresholds.temperature.min) return 'warning';
-        return 'normal';
-    };
-
-    const getHumidityStatus = (hum) => {
-        const thresholds = getThresholdsLocal();
-        if (hum == null) return 'normal';
-        if (hum > thresholds.humidity.critical) return 'critical';
-        if (hum > thresholds.humidity.max || hum < thresholds.humidity.min) return 'warning';
-        return 'normal';
-    };
-
     const getRssiStatus = (rssi) => {
         if (!rssi) return 'normal';
         if (rssi < -70) return 'critical';
         if (rssi < -60) return 'warning';
         return 'normal';
     };
-
-    const getPressureStatus = (p) => {
-        const thresholds = getThresholdsLocal();
-        if (p == null) return 'normal';
-        if (p < thresholds.pressure.min || p > (thresholds.pressure.max || 1050)) return 'critical';
-        if (p < (thresholds.pressure.min + 10) || p > (thresholds.pressure.max - 10)) return 'warning';
-        return 'normal';
-    };
-
-    // Read thresholds from localStorage saved settings or fallback to defaults
-    function getThresholdsLocal() {
-        try {
-            const saved = localStorage.getItem('fabrix_settings');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                return parsed.thresholds || {
-                    temperature: { min: 18, max: 28, critical: 32 },
-                    humidity: { min: 30, max: 60, critical: 75 },
-                    pressure: { min: 980, max: 1040 }
-                };
-            }
-        } catch (e) {
-            // ignore and fall through
-        }
-        return {
-            temperature: { min: 18, max: 28, critical: 32 },
-            humidity: { min: 30, max: 60, critical: 75 },
-            pressure: { min: 980, max: 1040 }
-        };
-    }
 
     return (
         <div className="space-y-6">
