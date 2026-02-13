@@ -21,17 +21,25 @@ import Settings from './pages/Settings';
 /* ------------------------------------------------------------------ */
 function LoadingScreen({ message }) {
   return (
-    <div className="loading-screen">
-      <div className="loading-screen-card">
-        <div className="loading-screen-logo">
-          <svg width="40" height="40" fill="currentColor" viewBox="0 0 24 24">
+    <div className="auth-screen">
+      <div className="auth-card">
+        {/* Animated logo */}
+        <div className="auth-logo">
+          <svg width="32" height="32" fill="currentColor" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3" />
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
           </svg>
         </div>
-        <h1 className="loading-screen-title">Fabrix</h1>
-        <p className="loading-screen-message">{message}</p>
-        <div className="loading-spinner" />
+
+        <h1 className="auth-title">Fabrix</h1>
+        <p className="auth-subtitle">Fleet Management System</p>
+
+        {/* Progress bar */}
+        <div className="auth-progress-track">
+          <div className="auth-progress-bar" />
+        </div>
+
+        <p className="auth-message">{message}</p>
       </div>
     </div>
   );
@@ -42,20 +50,24 @@ function LoadingScreen({ message }) {
 /* ------------------------------------------------------------------ */
 function ErrorScreen({ error, onRetry }) {
   return (
-    <div className="loading-screen">
-      <div className="loading-screen-card">
-        <div className="error-screen-icon">
-          <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    <div className="auth-screen">
+      <div className="auth-card">
+        {/* Error icon */}
+        <div className="auth-error-icon">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         </div>
-        <h2 className="error-screen-title">Authentication Failed</h2>
-        <p className="error-screen-message">
-          {error || 'Unable to connect to the server. Please check your network connection and try again.'}
+
+        <h2 className="auth-error-title">Connection Failed</h2>
+        <p className="auth-error-message">
+          {error || 'Unable to reach the server. Check your connection and try again.'}
         </p>
-        <button className="error-screen-retry" onClick={onRetry}>Retry Connection</button>
-        <p className="error-screen-help">If the problem persists, contact your administrator.</p>
+
+        <button className="auth-retry-btn" onClick={onRetry}>Try Again</button>
+        <p className="auth-help-text">If this persists, contact your administrator.</p>
       </div>
     </div>
   );
