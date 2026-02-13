@@ -70,12 +70,7 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                     className="sidebar-backdrop"
                     onClick={onClose}
                     style={{
-                        position: 'fixed',
-                        inset: 0,
-                        background: 'rgba(0, 0, 0, 0.5)',
-                        zIndex: 40,
                         opacity: isOpen ? 1 : 0,
-                        transition: 'opacity 0.3s ease',
                         pointerEvents: isOpen ? 'auto' : 'none'
                     }}
                 />
@@ -141,15 +136,6 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }) {
                     </button>
                 </div>
             </aside>
-
-            {/* Mobile backdrop show */}
-            <style>{`
-                @media (max-width: 1024px) {
-                    .sidebar-backdrop {
-                        display: block !important;
-                    }
-                }
-            `}</style>
         </>
     );
 }

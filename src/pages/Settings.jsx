@@ -352,32 +352,24 @@ function Settings() {
     }, [selectedDeviceId]); // Only depend on selectedDeviceId, not fetchRobotTasks
 
     return (
-        <div style={{ padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="settings-page">
             {/* Device Settings Section */}
-            <div
-                style={{
-                    background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
-                    borderRadius: '20px',
-                    padding: '14px 16px',
-                    border: '1px solid #DDD6FE',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
-                }}
-            >
-                <div className="device-settings-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', margin: 0 }}>
+            <div className="settings-section">
+                <div className="device-settings-header">
+                    <div className="settings-flex-row">
+                        <h2 className="settings-title">
                             Device Settings
                         </h2>
-                        <div title={isConnected ? 'Live (connected)' : 'Disconnected'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 10, height: 10, borderRadius: 9999, background: isConnected ? '#22C55E' : '#DC2626', boxShadow: isConnected ? '0 0 8px rgba(34,197,94,0.32)' : 'none' }} />
-                            <span style={{ fontSize: 12, color: '#6B7280' }}>{isConnected ? 'Live' : 'Disconnected'}</span>
+                        <div title={isConnected ? 'Live (connected)' : 'Disconnected'} className="status-indicator">
+                            <span className={`status-dot ${isConnected ? 'status-dot--online' : 'status-dot--offline'}`} />
+                            <span className="status-indicator__label">{isConnected ? 'Live' : 'Disconnected'}</span>
                         </div>
                     </div>
 
                     {/* System Control Toggle */}
                     <div className="system-toggle">
-                        <span style={{ fontSize: '14px', fontWeight: '600', color: '#4B5563' }}>System Mode:</span>
-                        <span style={{ fontSize: '14px', fontWeight: '800', color: '#7C3AED' }}>{settings.systemMode}</span>
+                        <span className="settings-mode-label">System Mode:</span>
+                        <span className="settings-mode-value">{settings.systemMode}</span>
                         <button
                             onClick={async () => {
                                 // Optimistic UI update and send control request
@@ -413,22 +405,10 @@ function Settings() {
                                     setTimeout(() => setDeviceSaveMessage(null), 3000);
                                 }
                             }}
-                            style={{
-                                width: '64px',
-                                height: '34px',
-                                borderRadius: '18px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                background: settings.systemMode === 'AUTOMATIC' ? '#7C3AED' : '#D1D5DB',
-                                transition: 'background 0.3s'
-                            }}
+                            className={`settings-mode-toggle ${settings.systemMode === 'AUTOMATIC' ? 'settings-mode-toggle--active' : ''}`}
                         >
-                            <Power size={16} style={{ color: settings.systemMode === 'AUTOMATIC' ? '#fff' : '#6B7280' }} />
-                            <Smartphone size={16} style={{ color: settings.systemMode === 'AUTOMATIC' ? '#fff' : '#6B7280' }} />
+                            <Power size={16} className="settings-mode-toggle__icon" />
+                            <Smartphone size={16} className="settings-mode-toggle__icon" />
                         </button>
                     </div>
                 </div>
@@ -455,38 +435,28 @@ function Settings() {
                         }
 
                         return (
-                            <div key={card.title} style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
-                                <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
-                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0 }}>{card.title}</h3>
-                                    <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
-                                    <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Range: {card.rule.absMin} – {card.rule.absMax} {card.rule.unit}</p>
+                            <div key={card.title} className="settings-threshold-card">
+                                <div className="settings-threshold-card__header">
+                                    <h3 className="settings-threshold-card__title">{card.title}</h3>
+                                    <p className="settings-threshold-subtitle">Current: <span style={{ ...getValueColorStyle(status), fontWeight: '600' }}>{formatted}</span></p>
+                                    <p className="settings-threshold-range">Range: {card.rule.absMin} – {card.rule.absMax} {card.rule.unit}</p>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: card.fields.length > 1 ? '1fr 1fr' : '1fr', gap: '8px' }}>
+                                <div className="settings-input-grid" style={card.fields.length === 1 ? { gridTemplateColumns: '1fr' } : undefined}>
                                     {card.fields.map(f => {
                                         const errKey = `${card.key}.${f.k}`;
                                         const hasError = showValidation && validationErrors[errKey];
                                         return (
                                             <div key={f.k}>
-                                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{f.l}</label>
+                                                <label className="settings-input-label">{f.l}</label>
                                                 <input
                                                     type="number"
                                                     step="0.1"
                                                     value={settings[card.key]?.[f.k] ?? ''}
                                                     onChange={(e) => updateDeviceSetting(card.key, f.k, e.target.value === '' ? '' : Number(e.target.value))}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '8px 10px',
-                                                        background: hasError ? '#FEF2F2' : '#F3F4F6',
-                                                        border: hasError ? '1.5px solid #EF4444' : '1.5px solid transparent',
-                                                        borderRadius: '8px',
-                                                        fontSize: '13px',
-                                                        fontWeight: '600',
-                                                        outline: 'none',
-                                                        transition: 'border 0.2s, background 0.2s'
-                                                    }}
+                                                    className={`settings-input ${hasError ? 'settings-input--error' : ''}`}
                                                 />
                                                 {hasError && (
-                                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors[errKey]}</p>
+                                                    <p className="settings-error-text">{validationErrors[errKey]}</p>
                                                 )}
                                             </div>
                                         );
@@ -497,76 +467,56 @@ function Settings() {
                     })}
 
                     {/* Robot Battery Threshold - in same grid */}
-                    <div style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
-                        <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
-                            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="settings-threshold-card">
+                        <div className="settings-threshold-card__header">
+                            <h3 className="settings-threshold-card__title settings-threshold-card__title--flex">
                                 Battery
-                                <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
+                                <span className="settings-robot-badge">Robot</span>
                             </h3>
-                            <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Battery levels</p>
-                            <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Warning must be greater than Critical (0–100%)</p>
+                            <p className="settings-threshold-subtitle">Battery levels</p>
+                            <p className="settings-threshold-range">Warning must be greater than Critical (0–100%)</p>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div className="settings-input-grid">
                             <div>
-                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Warning (%)</label>
+                                <label className="settings-input-label">Warning (%)</label>
                                 <input
                                     type="number"
                                     value={settings.battery?.min ?? 20}
                                     onChange={(e) => updateDeviceSetting('battery', 'min', e.target.value === '' ? '' : Number(e.target.value))}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 10px',
-                                        background: (showValidation && validationErrors['battery.min']) ? '#FEF2F2' : '#F3F4F6',
-                                        border: (showValidation && validationErrors['battery.min']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
-                                        borderRadius: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: '600',
-                                        outline: 'none',
-                                        transition: 'border 0.2s, background 0.2s'
-                                    }}
+                                    className={`settings-input ${(showValidation && validationErrors['battery.min']) ? 'settings-input--error' : ''}`}
                                 />
                                 {showValidation && validationErrors['battery.min'] && (
-                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['battery.min']}</p>
+                                    <p className="settings-error-text">{validationErrors['battery.min']}</p>
                                 )}
                             </div>
                             <div>
-                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Critical (%)</label>
+                                <label className="settings-input-label">Critical (%)</label>
                                 <input
                                     type="number"
                                     value={settings.battery?.critical ?? 10}
                                     onChange={(e) => updateDeviceSetting('battery', 'critical', e.target.value === '' ? '' : Number(e.target.value))}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 10px',
-                                        background: (showValidation && validationErrors['battery.critical']) ? '#FEF2F2' : '#F3F4F6',
-                                        border: (showValidation && validationErrors['battery.critical']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
-                                        borderRadius: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: '600',
-                                        outline: 'none',
-                                        transition: 'border 0.2s, background 0.2s'
-                                    }}
+                                    className={`settings-input ${(showValidation && validationErrors['battery.critical']) ? 'settings-input--error' : ''}`}
                                 />
                                 {showValidation && validationErrors['battery.critical'] && (
-                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['battery.critical']}</p>
+                                    <p className="settings-error-text">{validationErrors['battery.critical']}</p>
                                 )}
                             </div>
                         </div>
                     </div>
 
                     {/* Robot Temperature Threshold - in same grid */}
-                    <div style={{ background: 'white', borderRadius: '14px', padding: '14px 16px', border: '1px solid #F3F4F6' }}>
-                        <div style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '6px', marginBottom: '10px' }}>
-                            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1F2937', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="settings-threshold-card">
+                        <div className="settings-threshold-card__header">
+                            <h3 className="settings-threshold-card__title settings-threshold-card__title--flex">
                                 Temperature
-                                <span style={{ fontSize: '9px', fontWeight: '600', color: '#7C3AED', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '8px' }}>Robot</span>
+                                <span className="settings-robot-badge">Robot</span>
                             </h3>
-                            <p style={{ fontSize: '12px', color: '#6B7280', margin: '2px 0 0 0' }}>Motor/body temp</p>
-                            <p style={{ fontSize: '10px', color: '#9CA3AF', margin: '2px 0 0 0' }}>Range: {VALIDATION_RULES.robotTemp.absMin} – {VALIDATION_RULES.robotTemp.absMax} {VALIDATION_RULES.robotTemp.unit}</p>
+                            <p className="settings-threshold-subtitle">Motor/body temp</p>
+                            <p className="settings-threshold-range">Range: {VALIDATION_RULES.robotTemp.absMin} – {VALIDATION_RULES.robotTemp.absMax} {VALIDATION_RULES.robotTemp.unit}</p>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div className="settings-input-grid">
                             <div>
-                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Min (°C)</label>
+                                <label className="settings-input-label">Min (°C)</label>
                                 <input
                                     type="number"
                                     value={settings.robotThresholds?.tempMin ?? 15}
@@ -577,24 +527,14 @@ function Settings() {
                                             tempMin: e.target.value === '' ? '' : Number(e.target.value)
                                         }
                                     }))}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 10px',
-                                        background: (showValidation && validationErrors['robotTemp.min']) ? '#FEF2F2' : '#F3F4F6',
-                                        border: (showValidation && validationErrors['robotTemp.min']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
-                                        borderRadius: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: '600',
-                                        outline: 'none',
-                                        transition: 'border 0.2s, background 0.2s'
-                                    }}
+                                    className={`settings-input ${(showValidation && validationErrors['robotTemp.min']) ? 'settings-input--error' : ''}`}
                                 />
                                 {showValidation && validationErrors['robotTemp.min'] && (
-                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['robotTemp.min']}</p>
+                                    <p className="settings-error-text">{validationErrors['robotTemp.min']}</p>
                                 )}
                             </div>
                             <div>
-                                <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>Max (°C)</label>
+                                <label className="settings-input-label">Max (°C)</label>
                                 <input
                                     type="number"
                                     value={settings.robotThresholds?.tempMax ?? 45}
@@ -605,20 +545,10 @@ function Settings() {
                                             tempMax: e.target.value === '' ? '' : Number(e.target.value)
                                         }
                                     }))}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 10px',
-                                        background: (showValidation && validationErrors['robotTemp.max']) ? '#FEF2F2' : '#F3F4F6',
-                                        border: (showValidation && validationErrors['robotTemp.max']) ? '1.5px solid #EF4444' : '1.5px solid transparent',
-                                        borderRadius: '8px',
-                                        fontSize: '13px',
-                                        fontWeight: '600',
-                                        outline: 'none',
-                                        transition: 'border 0.2s, background 0.2s'
-                                    }}
+                                    className={`settings-input ${(showValidation && validationErrors['robotTemp.max']) ? 'settings-input--error' : ''}`}
                                 />
                                 {showValidation && validationErrors['robotTemp.max'] && (
-                                    <p style={{ fontSize: '10px', color: '#EF4444', margin: '3px 0 0 0', lineHeight: '1.3' }}>{validationErrors['robotTemp.max']}</p>
+                                    <p className="settings-error-text">{validationErrors['robotTemp.max']}</p>
                                 )}
                             </div>
                         </div>
@@ -626,37 +556,16 @@ function Settings() {
                 </div>
 
                 {/* Save Message & Action */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="settings-actions">
                     {deviceSaveMessage && (
-                        <div style={{
-                            padding: '12px 16px',
-                            borderRadius: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            background: deviceSaveMessage.type === 'error' ? '#FEF2F2' : '#F0FDF4',
-                            color: deviceSaveMessage.type === 'error' ? '#DC2626' : '#15803D',
-                            border: deviceSaveMessage.type === 'error' ? '1px solid #FECACA' : '1px solid #BBF7D0'
-                        }}>
+                        <div className={`settings-message ${deviceSaveMessage.type === 'error' ? 'settings-message--error' : 'settings-message--success'}`}>
                             {deviceSaveMessage.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
                             {deviceSaveMessage.text}
                         </div>
                     )}
                     <button
                         onClick={handleSaveDeviceSettings}
-                        style={{
-                            width: '100%',
-                            padding: '14px 24px',
-                            background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '50px',
-                            fontSize: '15px',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)',
-                            transition: 'transform 0.2s'
-                        }}
+                        className="settings-save-btn"
                     >
                         Save Device Settings
                     </button>
@@ -664,40 +573,18 @@ function Settings() {
             </div>
 
             {/* Robot Settings Section */}
-            <div
-                style={{
-                    background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
-                    borderRadius: '24px',
-                    padding: '24px 28px',
-                    border: '1px solid #DDD6FE',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
-                }}
-            >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1F2937', margin: 0 }}>
+            <div className="settings-section settings-section--fleet">
+                <div className="settings-fleet-header">
+                    <h2 className="settings-title">
                         Robot Fleet Overview
-                        <span style={{ fontSize: '14px', fontWeight: '400', color: '#6B7280', marginLeft: '12px' }}>
+                        <span className="settings-title-sub">
                             ({connectedRobots.length} Robots Online)
                         </span>
                     </h2>
                     <button
                         onClick={handleRefreshTasks}
                         disabled={isRefreshing}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 14px',
-                            background: 'white',
-                            border: '1px solid #E5E7EB',
-                            borderRadius: '10px',
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: '#374151',
-                            cursor: isRefreshing ? 'not-allowed' : 'pointer',
-                            opacity: isRefreshing ? 0.7 : 1,
-                            transition: 'all 0.2s'
-                        }}
+                        className="settings-refresh-btn"
                         title="Refresh robot tasks from server"
                     >
                         {isRefreshing ? (
@@ -710,9 +597,9 @@ function Settings() {
                 </div>
 
                 {connectedRobots.length === 0 ? (
-                    <div style={{ padding: '60px', textAlign: 'center', background: 'rgba(255,255,255,0.4)', borderRadius: '16px' }}>
-                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>🤖</div>
-                        <p style={{ fontSize: '16px', color: '#6B7280' }}>Waiting for robot data sync...</p>
+                    <div className="settings-empty-state">
+                        <div className="settings-empty-state__icon">🤖</div>
+                        <p className="settings-empty-state__text">Waiting for robot data sync...</p>
                     </div>
                 ) : (
                     <div className="robot-settings-grid">
@@ -730,61 +617,29 @@ function Settings() {
                             return (
                                 <div
                                     key={robotId}
-                                    style={{
-                                        background: 'white',
-                                        borderRadius: '16px',
-                                        padding: '16px 14px',
-                                        border: '1px solid #E5E7EB',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: '10px',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}
+                                    className="settings-robot-card"
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F3F4F6', paddingBottom: '8px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#1F2937' }}>{displayId}</h3>
+                                    <div className="settings-robot-card__header">
+                                        <div className="settings-flex-row" style={{ gap: '8px' }}>
+                                            <h3 className="settings-robot-card__name">{displayId}</h3>
                                             {isBusy && (
-                                                <span style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px',
-                                                    padding: '2px 8px',
-                                                    borderRadius: '12px',
-                                                    fontSize: '10px',
-                                                    fontWeight: '600',
-                                                    background: '#DBEAFE',
-                                                    color: '#1D4ED8'
-                                                }}>
+                                                <span className="settings-active-badge">
                                                     <AlertCircle size={10} />
                                                     Active Task
                                                 </span>
                                             )}
                                         </div>
-                                        <div style={{
-                                            width: '10px',
-                                            height: '10px',
-                                            borderRadius: '50%',
-                                            // Default to red; turn green only when robot has recent stream data
-                                            background: (Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60 ? '#22C55E' : '#DC2626',
-                                            boxShadow: ((Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60) ? '0 0 8px rgba(34,197,94,0.32)' : 'transparent'
-                                        }} title={robot.lastUpdate ? `Last stream: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent stream data'} />
+                                        <div className={`status-dot ${(Date.now() - (robot.lastUpdate || 0)) / 1000 <= 60 ? 'status-dot--online' : 'status-dot--offline'}`} title={robot.lastUpdate ? `Last stream: ${new Date(robot.lastUpdate).toLocaleTimeString()}` : 'No recent stream data'} />
                                     </div>
 
                                     {/* Show active task info when robot is busy */}
                                     {isBusy && activeTask && (
-                                        <div style={{
-                                            background: '#FEF3C7',
-                                            borderRadius: '8px',
-                                            padding: '8px 10px',
-                                            border: '1px solid #FDE68A',
-                                            marginBottom: '4px'
-                                        }}>
-                                            <div style={{ fontSize: '11px', color: '#92400E', fontWeight: '600' }}>
+                                        <div className="settings-task-info">
+                                            <div className="settings-task-info__title">
                                                 Delivering — {activeTask.task_id || activeTask.taskId || 'In Progress'}
                                             </div>
                                             {activeTask.destination && (
-                                                <div style={{ fontSize: '10px', color: '#B45309', marginTop: '2px' }}>
+                                                <div className="settings-task-info__route">
                                                     {activeTask['initiate location'] || activeTask.source || '?'} → {typeof activeTask.destination === 'string' ? activeTask.destination : 'Destination'}
                                                 </div>
                                             )}
@@ -792,56 +647,44 @@ function Settings() {
                                     )}
 
                                     <div>
-                                        <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Task Type</label>
-                                        <div style={{
-                                            width: '100%',
-                                            padding: '8px 12px',
-                                            background: '#F0FDF4',
-                                            border: '1px solid #BBF7D0',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            fontWeight: '700',
-                                            color: '#059669',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px'
-                                        }}>
+                                        <label className="settings-field-label">Task Type</label>
+                                        <div className="settings-task-type">
                                             📦 Deliver
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Initiate Location</label>
-                                        <div style={{ position: 'relative' }}>
+                                        <label className="settings-field-label">Initiate Location</label>
+                                        <div className="settings-select-wrap">
                                             <select
                                                 value={robotSettings.source || ''}
                                                 onChange={(e) => updateRobotSetting(robotId, 'source', e.target.value)}
                                                 disabled={isBusy}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
+                                                className="settings-select"
                                             >
                                                 {LOCATION_OPTIONS.map(opt => <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>)}
                                             </select>
-                                            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#9CA3AF' }} />
+                                            <ChevronDown size={14} className="settings-select-icon" />
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Destination</label>
-                                        <div style={{ position: 'relative' }}>
+                                        <label className="settings-field-label">Destination</label>
+                                        <div className="settings-select-wrap">
                                             <select
                                                 value={robotSettings.destination || ''}
                                                 onChange={(e) => updateRobotSetting(robotId, 'destination', e.target.value)}
                                                 disabled={isBusy}
-                                                style={{ width: '100%', padding: '8px 32px 8px 12px', background: isBusy ? '#E5E7EB' : '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '12px', appearance: 'none', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}
+                                                className="settings-select"
                                             >
                                                 {LOCATION_OPTIONS.map(opt => <option key={opt} value={opt === 'Select' ? '' : opt}>{opt}</option>)}
                                             </select>
-                                            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#9CA3AF' }} />
+                                            <ChevronDown size={14} className="settings-select-icon" />
                                         </div>
                                     </div>
 
                                     {/* Assign/Clear buttons directly below Destination */}
-                                    <div style={{ display: 'flex', gap: '0', marginTop: 8 }}>
+                                    <div className="settings-btn-row">
                                         <button
                                             disabled={isBusy}
                                             onClick={async () => {
@@ -916,17 +759,7 @@ function Settings() {
                                                     setTimeout(() => setRobotSaveMessage(null), 3500);
                                                 }
                                             }}
-                                            style={{
-                                                flex: 1,
-                                                padding: '10px 12px',
-                                                background: isBusy ? '#9CA3AF' : '#7C3AED',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '8px 0 0 8px',
-                                                cursor: isBusy ? 'not-allowed' : 'pointer',
-                                                fontWeight: 700,
-                                                opacity: isBusy ? 0.7 : 1
-                                            }}
+                                            className="settings-assign-btn"
                                             title={isBusy ? 'Robot is busy with an active task' : 'Assign task to robot'}
                                         >
                                             {isBusy ? 'Busy' : 'Assign'}
@@ -939,7 +772,7 @@ function Settings() {
                                                 setRobotSaveMessage({ type: 'success', text: `Cleared settings for ${displayId}` });
                                                 setTimeout(() => setRobotSaveMessage(null), 2000);
                                             }}
-                                            style={{ flex: 1, padding: '10px 12px', background: '#F3F4F6', color: '#111827', border: '1px solid #E5E7EB', borderRadius: '0 8px 8px 0', cursor: 'pointer', fontWeight: 700 }}
+                                            className="settings-clear-btn"
                                         >
                                             Clear
                                         </button>
@@ -950,18 +783,9 @@ function Settings() {
                     </div>
                 )}
                 {/* Robot Fleet Save Message */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: 12 }}>
+                <div className="settings-actions settings-actions--mt">
                     {robotSaveMessage && (
-                        <div style={{
-                            padding: '12px 16px',
-                            borderRadius: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            background: robotSaveMessage.type === 'error' ? '#FEF2F2' : '#F0FDF4',
-                            color: robotSaveMessage.type === 'error' ? '#DC2626' : '#15803D',
-                            border: robotSaveMessage.type === 'error' ? '1px solid #FECACA' : '1px solid #BBF7D0'
-                        }}>
+                        <div className={`settings-message ${robotSaveMessage.type === 'error' ? 'settings-message--error' : 'settings-message--success'}`}>
                             {robotSaveMessage.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
                             {robotSaveMessage.text}
                         </div>

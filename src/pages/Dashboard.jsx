@@ -138,84 +138,44 @@ function FabMap() {
                     <>
                         {/* Position marker */}
                         <div
-                            style={{
-                                position: 'absolute',
-                                left: `${clickedCoords.xPercent}%`,
-                                top: `${clickedCoords.yPercent}%`,
-                                transform: 'translate(-50%, -50%)',
-                                width: '12px',
-                                height: '12px',
-                                background: '#7C3AED',
-                                border: '2px solid white',
-                                borderRadius: '50%',
-                                boxShadow: '0 2px 8px rgba(124, 58, 237, 0.5)',
-                                zIndex: 15,
-                                pointerEvents: 'none'
-                            }}
+                            className="map-click-marker"
+                            style={{ left: `${clickedCoords.xPercent}%`, top: `${clickedCoords.yPercent}%` }}
                         />
                         {/* Coordinates tooltip */}
                         <div
+                            className="map-click-tooltip"
                             style={{
-                                position: 'absolute',
                                 left: `${Math.min(clickedCoords.xPercent, 75)}%`,
-                                top: `${clickedCoords.yPercent < 20 ? clickedCoords.yPercent + 5 : clickedCoords.yPercent - 15}%`,
-                                background: 'white',
-                                borderRadius: '10px',
-                                padding: '10px 14px',
-                                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                                border: '1px solid #E5E7EB',
-                                zIndex: 25,
-                                minWidth: '180px'
+                                top: `${clickedCoords.yPercent < 20 ? clickedCoords.yPercent + 5 : clickedCoords.yPercent - 15}%`
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '11px', fontWeight: '700', color: '#7C3AED', textTransform: 'uppercase' }}>
+                            <div className="map-click-tooltip__header">
+                                <span className="map-click-tooltip__label">
                                     📍 Clicked Position
                                 </span>
                                 <button
                                     onClick={() => setClickedCoords(null)}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        color: '#9CA3AF',
-                                        padding: '0 4px'
-                                    }}
+                                    className="map-click-tooltip__close"
                                 >
                                     ✕
                                 </button>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                                <span style={{ color: '#6B7280' }}>Latitude:</span>
-                                <span style={{ fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>
+                            <div className="map-click-tooltip__row">
+                                <span className="map-click-tooltip__key">Latitude:</span>
+                                <span className="map-click-tooltip__value">
                                     {clickedCoords.lat.toFixed(6)}
                                 </span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px' }}>
-                                <span style={{ color: '#6B7280' }}>Longitude:</span>
-                                <span style={{ fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>
+                            <div className="map-click-tooltip__row map-click-tooltip__row--mb">
+                                <span className="map-click-tooltip__key">Longitude:</span>
+                                <span className="map-click-tooltip__value">
                                     {clickedCoords.lng.toFixed(6)}
                                 </span>
                             </div>
                             <button
                                 onClick={copyToClipboard}
-                                style={{
-                                    width: '100%',
-                                    padding: '6px 10px',
-                                    background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    fontSize: '11px',
-                                    fontWeight: '600',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '6px'
-                                }}
+                                className="map-click-tooltip__copy-btn"
                             >
                                 📋 Copy Coordinates
                             </button>
@@ -512,7 +472,7 @@ function AlertsCard() {
                         <CheckCircle size={24} />
                     </div>
                     <p>No active alerts</p>
-                    <p style={{ fontSize: '12px' }}>All systems operating normally</p>
+                    <p className="text-xs">All systems operating normally</p>
                 </div>
             )}
         </div>
@@ -591,7 +551,7 @@ function ControlToggles() {
                 <div className="control-toggle">
                     <span className={`toggle-label ${isAuto ? 'auto' : 'manual'}`}>{isAuto ? 'AUTO' : 'MANUAL'} • {acDisplay}</span>
                     {isLoading.ac ? (
-                        <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
+                        <Loader2 size={20} className="animate-spin text-accent" />
                     ) : (
                         <div
                             className={`toggle-switch ${acEnabled ? 'active' : ''} ${isAuto ? 'disabled' : ''}`}
@@ -607,7 +567,7 @@ function ControlToggles() {
                 <div className="control-toggle">
                     <span className={`toggle-label ${isAuto ? 'auto' : 'manual'}`}>{isAuto ? 'AUTO' : 'MANUAL'} • {airPurifierDisplay}</span>
                     {isLoading.airPurifier ? (
-                        <Loader2 size={20} className="animate-spin" style={{ color: '#7C3AED' }} />
+                        <Loader2 size={20} className="animate-spin text-accent" />
                     ) : (
                         <div
                             className={`toggle-switch ${airPurifierEnabled ? 'active' : ''} ${isAuto ? 'disabled' : ''}`}
@@ -647,12 +607,12 @@ function ManualModeNotice() {
     if (suggestions.length === 0) return null;
 
     return (
-        <div style={{ background: '#FEF3C7', borderRadius: 12, padding: '10px 12px', marginBottom: 12, border: '1px solid #FDE68A' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <AlertTriangle size={18} style={{ color: '#B45309' }} />
+        <div className="manual-mode-notice">
+            <div className="manual-mode-notice__content">
+                <AlertTriangle size={18} className="text-warning-dark" />
                 <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>Manual Mode Active</div>
-                    <div style={{ fontSize: 13, color: '#92400E' }}>Recommended: Turn ON {suggestions.join(' and ')}</div>
+                    <div className="manual-mode-notice__title">Manual Mode Active</div>
+                    <div className="manual-mode-notice__text">Recommended: Turn ON {suggestions.join(' and ')}</div>
                 </div>
             </div>
         </div>
@@ -724,19 +684,7 @@ function RobotDetails() {
         // No task and robot is READY → show ready-for-assignment badge
         if (!task && robot?.status?.state === 'READY') {
             return (
-                <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '3px 8px',
-                    borderRadius: '12px',
-                    fontSize: '10px',
-                    fontWeight: '700',
-                    background: '#ECFDF5',
-                    color: '#047857',
-                    marginTop: '4px',
-                    border: '1px solid #A7F3D0'
-                }}>
+                <span className="task-status-badge" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>
                     ✅ Ready for Assignment
                 </span>
             );
@@ -752,22 +700,12 @@ function RobotDetails() {
 
             return (
                 <div style={{ marginTop: '4px' }}>
-                    <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        fontSize: '10px',
-                        fontWeight: '700',
-                        background: colors.bg,
-                        color: colors.color
-                    }}>
+                    <span className="task-status-badge" style={{ background: colors.bg, color: colors.color }}>
                         {PHASE_LABELS[phase]}
                     </span>
                     {progress != null && phase !== TASK_PHASES.COMPLETED && phase !== TASK_PHASES.ASSIGNED && (
-                        <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <div style={{ width: '60px', height: '4px', background: '#E5E7EB', borderRadius: '2px', overflow: 'hidden' }}>
+                        <div className="task-progress-inline">
+                            <div className="task-progress-bar">
                                 <div style={{ width: `${Math.min(progress, 100)}%`, height: '100%', background: colors.color, borderRadius: '2px', transition: 'width 0.5s ease' }} />
                             </div>
                             <span style={{ fontSize: '9px', fontWeight: '600', color: colors.color }}>{progress}%</span>
@@ -811,18 +749,7 @@ function RobotDetails() {
         }
 
         return (
-            <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '3px 8px',
-                borderRadius: '12px',
-                fontSize: '10px',
-                fontWeight: '700',
-                background: bgColor,
-                color: textColor,
-                marginTop: '4px'
-            }}>
+            <span className="task-status-badge" style={{ background: bgColor, color: textColor }}>
                 {label}
             </span>
         );
@@ -834,10 +761,10 @@ function RobotDetails() {
                 <div className="robot-details-header">
                     <h2 className="robot-details-title">Robot details</h2>
                 </div>
-                <div className="no-robots-message" style={{ textAlign: 'center', padding: '40px', color: '#6B7280' }}>
-                    <Bot size={48} style={{ margin: '0 auto 16px', opacity: 0.5 }} />
+                <div className="no-robots-empty">
+                    <Bot size={48} className="mx-auto mb-4 opacity-50" />
                     <p>No robots discovered yet</p>
-                    <p style={{ fontSize: '12px', marginTop: '8px' }}>Waiting for robot data from WebSocket...</p>
+                    <p className="text-xs mt-2">Waiting for robot data from WebSocket...</p>
                 </div>
             </div>
         );
@@ -845,29 +772,15 @@ function RobotDetails() {
 
     return (
         <div className="robot-details-section">
-            <div className="robot-details-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div className="robot-details-header">
+                <div className="settings-flex-row">
                     <h2 className="robot-details-title">Robot details</h2>
                     <span className="robot-details-count">{robots.length} robot(s) connected</span>
                 </div>
                 <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        background: 'white',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: '#374151',
-                        cursor: isRefreshing ? 'not-allowed' : 'pointer',
-                        opacity: isRefreshing ? 0.7 : 1,
-                        transition: 'all 0.15s'
-                    }}
+                    className="robot-refresh-btn"
                     title="Refresh robot tasks from server"
                 >
                     {isRefreshing ? (
@@ -891,13 +804,13 @@ function RobotDetails() {
                         </div>
                         <div className="robot-card-task">
                             {robot.task?.phase === TASK_PHASES.COMPLETED
-                                ? <span style={{ color: '#059669' }}>✅ {robot.task.type || 'Task'} — Delivered</span>
+                                ? <span className="text-success-dark">✅ {robot.task.type || 'Task'} — Delivered</span>
                                 : robot.task?.phase
                                     ? <>{PHASE_LABELS[robot.task.phase]?.split(' ').slice(1).join(' ') || robot.task.task || robot.task.type || '--'}</>
                                     : robot.task
                                         ? <>TASK: {robot.task.task || robot.task.type || '--'}</>
                                         : robot.status?.state === 'READY'
-                                            ? <span style={{ color: '#047857' }}>Ready for Assignment</span>
+                                            ? <span className="text-emerald-700">Ready for Assignment</span>
                                             : 'TASK: --'
                             }
                         </div>
@@ -981,35 +894,6 @@ function Dashboard() {
                     </div>
                 </>
             )}
-
-            {/* Mobile-specific styles */}
-            <style>{`
-                .mobile-status-section {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 12px;
-                    margin-bottom: 12px;
-                }
-
-                .mobile-map-section {
-                    margin-bottom: 12px;
-                }
-
-                .mobile-map-section .fab-map-container {
-                    border-radius: 12px;
-                    overflow: hidden;
-                }
-
-                .mobile-map-section .fab-map {
-                    height: 220px;
-                }
-
-                @media (max-width: 480px) {
-                    .mobile-map-section .fab-map {
-                        height: 180px;
-                    }
-                }
-            `}</style>
         </div>
     );
 }

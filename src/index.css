@@ -1727,3 +1727,2104 @@ textarea {
     margin-right: 6px;
   }
 }
+
+/* ================================================================
+   SETTINGS PAGE — Extracted Component Styles
+   ================================================================ */
+
+/* Page container */
+.settings-page {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Section card (Device Settings / Robot Fleet) */
+.settings-section {
+  background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%);
+  border-radius: 20px;
+  padding: 14px 16px;
+  border: 1px solid #DDD6FE;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.settings-section--fleet {
+  border-radius: 24px;
+  padding: 24px 28px;
+}
+
+/* Section title */
+.settings-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+}
+
+.settings-title-sub {
+  font-size: 14px;
+  font-weight: 400;
+  color: #6B7280;
+  margin-left: 12px;
+}
+
+/* Connection status dot */
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-dot--online {
+  background: #22C55E;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.32);
+}
+
+.status-dot--offline {
+  background: #DC2626;
+  box-shadow: none;
+}
+
+/* Status indicator row with dot + label */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-indicator__label {
+  font-size: 12px;
+  color: #6B7280;
+}
+
+/* System mode labels */
+.settings-mode-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4B5563;
+}
+
+.settings-mode-value {
+  font-size: 14px;
+  font-weight: 800;
+  color: #7C3AED;
+}
+
+/* System mode toggle button */
+.settings-mode-toggle {
+  width: 64px;
+  height: 34px;
+  border-radius: 18px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #D1D5DB;
+  transition: background 0.3s;
+}
+
+.settings-mode-toggle--active {
+  background: #7C3AED;
+}
+
+.settings-mode-toggle__icon {
+  color: #6B7280;
+}
+
+.settings-mode-toggle--active .settings-mode-toggle__icon {
+  color: #fff;
+}
+
+/* Threshold card */
+.settings-threshold-card {
+  background: white;
+  border-radius: 14px;
+  padding: 14px 16px;
+  border: 1px solid #F3F4F6;
+}
+
+.settings-threshold-card__header {
+  border-bottom: 1px solid #F3F4F6;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+
+.settings-threshold-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+}
+
+.settings-threshold-card__title--flex {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Robot badge tag */
+.settings-robot-badge {
+  font-size: 9px;
+  font-weight: 600;
+  color: #7C3AED;
+  background: rgba(124, 58, 237, 0.1);
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+/* Threshold card subtitle / range text */
+.settings-threshold-subtitle {
+  font-size: 12px;
+  color: #6B7280;
+  margin: 2px 0 0 0;
+}
+
+.settings-threshold-range {
+  font-size: 10px;
+  color: #9CA3AF;
+  margin: 2px 0 0 0;
+}
+
+/* Input grid (two columns) */
+.settings-input-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Input label */
+.settings-input-label {
+  font-size: 10px;
+  color: #9CA3AF;
+  display: block;
+  margin-bottom: 3px;
+}
+
+/* Threshold number input */
+.settings-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #F3F4F6;
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition: border 0.2s, background 0.2s;
+  box-sizing: border-box;
+}
+
+.settings-input:focus {
+  border-color: #7C3AED;
+  background: #FAFAFE;
+}
+
+.settings-input--error {
+  background: #FEF2F2;
+  border: 1.5px solid #EF4444;
+}
+
+/* Validation error text */
+.settings-error-text {
+  font-size: 10px;
+  color: #EF4444;
+  margin: 3px 0 0 0;
+  line-height: 1.3;
+}
+
+/* Save / feedback message */
+.settings-message {
+  padding: 12px 16px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-message--success {
+  background: #F0FDF4;
+  color: #15803D;
+  border: 1px solid #BBF7D0;
+}
+
+.settings-message--error {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+/* Action button row */
+.settings-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-actions--mt {
+  margin-top: 12px;
+}
+
+/* Primary save button */
+.settings-save-btn {
+  width: 100%;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  transition: transform 0.2s;
+}
+
+.settings-save-btn:hover {
+  transform: translateY(-1px);
+}
+
+.settings-save-btn:active {
+  transform: translateY(0);
+}
+
+/* Fleet header row */
+.settings-fleet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+/* Refresh button */
+.settings-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settings-refresh-btn:hover {
+  background: #F9FAFB;
+  border-color: #D1D5DB;
+}
+
+.settings-refresh-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Empty state placeholder */
+.settings-empty-state {
+  padding: 60px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 16px;
+}
+
+.settings-empty-state__icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.settings-empty-state__text {
+  font-size: 16px;
+  color: #6B7280;
+}
+
+/* Robot card in fleet grid */
+.settings-robot-card {
+  background: white;
+  border-radius: 16px;
+  padding: 16px 14px;
+  border: 1px solid #E5E7EB;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.settings-robot-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #F3F4F6;
+  padding-bottom: 8px;
+}
+
+.settings-robot-card__name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #1F2937;
+}
+
+/* Active task badge */
+.settings-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
+/* Active task info banner */
+.settings-task-info {
+  background: #FEF3C7;
+  border-radius: 8px;
+  padding: 8px 10px;
+  border: 1px solid #FDE68A;
+  margin-bottom: 4px;
+}
+
+.settings-task-info__title {
+  font-size: 11px;
+  color: #92400E;
+  font-weight: 600;
+}
+
+.settings-task-info__route {
+  font-size: 10px;
+  color: #B45309;
+  margin-top: 2px;
+}
+
+/* Field label (robot config) */
+.settings-field-label {
+  font-size: 12px;
+  color: #6B7280;
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Task type display */
+.settings-task-type {
+  width: 100%;
+  padding: 8px 12px;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #059669;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Select wrapper (relative positioning for chevron) */
+.settings-select-wrap {
+  position: relative;
+}
+
+/* Select dropdown */
+.settings-select {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  font-size: 12px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.settings-select:disabled {
+  background: #E5E7EB;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Chevron icon inside select */
+.settings-select-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #9CA3AF;
+}
+
+/* Assign / Clear split-button row */
+.settings-btn-row {
+  display: flex;
+  gap: 0;
+  margin-top: 8px;
+}
+
+/* Assign button */
+.settings-assign-btn {
+  flex: 1;
+  padding: 10px 12px;
+  background: #7C3AED;
+  color: #fff;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-assign-btn:disabled {
+  background: #9CA3AF;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Clear button */
+.settings-clear-btn {
+  flex: 1;
+  padding: 10px 12px;
+  background: #F3F4F6;
+  color: #111827;
+  border: 1px solid #E5E7EB;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-clear-btn:hover {
+  background: #E5E7EB;
+}
+
+/* Flex row helpers for settings */
+.settings-flex-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@media (max-width: 768px) {
+  .settings-section--fleet {
+    padding: 16px 14px;
+    border-radius: 16px;
+  }
+  
+  .settings-fleet-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .settings-refresh-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ================================================================
+   ANALYSIS PAGE — Extracted Component Styles
+   ================================================================ */
+
+/* Page container */
+.analysis-page {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Page header row */
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.analysis-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+}
+
+.analysis-subtitle {
+  font-size: 12px;
+  color: #9CA3AF;
+  margin: 0;
+}
+
+/* Control row (time filters, export, refresh) */
+.analysis-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Time range filter pills */
+.analysis-filter-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #E5E7EB;
+  background: white;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.analysis-filter-pill:hover {
+  border-color: #D1D5DB;
+}
+
+.analysis-filter-pill--active {
+  background: #7C3AED;
+  color: white;
+  border-color: #7C3AED;
+}
+
+/* Icon action button */
+.analysis-icon-btn {
+  padding: 8px;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.analysis-icon-btn:hover {
+  background: #F9FAFB;
+}
+
+.analysis-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Insight card grid */
+.analysis-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+/* Insight card */
+.insight-card {
+  background: white;
+  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid #F3F4F6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.insight-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.insight-card__icon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insight-card__value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1F2937;
+}
+
+.insight-card__label {
+  font-size: 11px;
+  color: #6B7280;
+  margin: 0;
+}
+
+/* Chart section card */
+.analysis-chart-section {
+  background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%);
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid #DDD6FE;
+}
+
+.analysis-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.analysis-chart-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+}
+
+/* Metric legend (toggle buttons for chart lines) */
+.analysis-legend {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.analysis-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #E5E7EB;
+  background: white;
+  transition: all 0.2s;
+}
+
+.analysis-legend-item--active {
+  border-color: currentColor;
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.analysis-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Chart wrapper */
+.analysis-chart-wrap {
+  background: white;
+  border-radius: 14px;
+  padding: 16px 8px 4px 0;
+  border: 1px solid #F3F4F6;
+}
+
+/* Loading / empty state for charts */
+.analysis-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 12px;
+  color: #6B7280;
+}
+
+.analysis-chart-empty__text {
+  font-size: 14px;
+  color: #9CA3AF;
+}
+
+/* Robot sensor bar chart section */
+.analysis-robot-section {
+  background: white;
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid #F3F4F6;
+  margin-top: 12px;
+}
+
+.analysis-robot-section__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0 0 12px 0;
+}
+
+/* Fleet table section */
+.analysis-fleet-section {
+  background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%);
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid #DDD6FE;
+}
+
+.analysis-fleet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.analysis-fleet-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+}
+
+.analysis-fleet-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #6B7280;
+  margin-left: 8px;
+}
+
+/* Fleet table wrapper */
+.analysis-table-wrap {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #F3F4F6;
+  overflow: hidden;
+}
+
+/* Fleet table */
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.analysis-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #F9FAFB;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.analysis-table td {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #374151;
+  border-bottom: 1px solid #F9FAFB;
+}
+
+.analysis-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Robot row expand button */
+.analysis-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6B7280;
+  padding: 2px;
+  display: flex;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.analysis-expand-btn:hover {
+  color: #1F2937;
+}
+
+/* Robot name cell */
+.analysis-robot-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+/* Status badge */
+.analysis-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.analysis-status-badge--assigned {
+  background: #EDE9FE;
+  color: #7C3AED;
+}
+
+.analysis-status-badge--progress {
+  background: #DBEAFE;
+  color: #2563EB;
+}
+
+.analysis-status-badge--completed {
+  background: #DCFCE7;
+  color: #16A34A;
+}
+
+.analysis-status-badge--idle {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* Task detail expanded row */
+.analysis-task-detail {
+  background: #FAFAFA;
+}
+
+.analysis-task-detail td {
+  padding: 12px 14px;
+}
+
+.analysis-task-detail-inner {
+  background: white;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid #F3F4F6;
+}
+
+.analysis-task-detail__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1F2937;
+  margin-bottom: 8px;
+}
+
+/* Phase progress bar */
+.analysis-phase-bar {
+  height: 6px;
+  background: #F3F4F6;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.analysis-phase-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* Phase step labels */
+.analysis-phase-steps {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.analysis-phase-step {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Action button in task detail */
+.analysis-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.analysis-action-btn--danger {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.analysis-action-btn--danger:hover {
+  background: #FEE2E2;
+}
+
+/* Recharts tooltip override */
+.analysis-tooltip {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  padding: 10px 14px !important;
+}
+
+@media (max-width: 768px) {
+  .analysis-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .analysis-controls {
+    width: 100%;
+  }
+  
+  .analysis-insights {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .analysis-table th,
+  .analysis-table td {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .analysis-insights {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Analysis chart card (white bg variant) */
+.analysis-chart-card {
+  background: white;
+  border-radius: 14px;
+  border: 1px solid #E5E7EB;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+/* Analysis select dropdown */
+.analysis-select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  font-size: 13px;
+  color: #374151;
+  background: white;
+  cursor: pointer;
+}
+
+/* Export / refresh inline button */
+.analysis-export-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  background: white;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.analysis-export-btn:hover {
+  background: #F9FAFB;
+}
+
+.analysis-export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Robot task history section container */
+.analysis-task-section {
+  margin-top: 16px;
+}
+
+.analysis-task-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.analysis-task-section__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+/* Robot expandable card wrapper */
+.analysis-robot-card {
+  background: white;
+  border-radius: 14px;
+  border: 1px solid #E5E7EB;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+/* Robot card header (clickable) */
+.analysis-robot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border-radius: 14px;
+}
+
+.analysis-robot-header:hover {
+  background: #F9FAFB;
+}
+
+.analysis-robot-header--expanded {
+  border-bottom: 1px solid #E5E7EB;
+  border-radius: 14px 14px 0 0;
+}
+
+/* Robot name in header */
+.analysis-robot-label {
+  font-weight: 600;
+  color: #1F2937;
+  font-size: 14px;
+}
+
+.analysis-robot-id {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+/* Inline state badge (dynamic color via style) */
+.analysis-state-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Counter badges row */
+.analysis-counter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.analysis-counter-badge {
+  padding: 4px 10px;
+  border-radius: 18px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.analysis-counter-badge--allocated {
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
+.analysis-counter-badge--progress {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.analysis-counter-badge--completed {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.analysis-counter-total {
+  font-size: 12px;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+/* Status filter tab bar */
+.analysis-filter-bar {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #F3F4F6;
+  background: #FAFAFA;
+}
+
+.analysis-filter-tab {
+  padding: 4px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #E5E7EB;
+  background: white;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.analysis-filter-tab--active {
+  border-color: #6366F1;
+  background: #EEF2FF;
+  color: #4F46E5;
+}
+
+/* Scrollable task table wrapping */
+.analysis-task-table-wrap {
+  overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* Task cell helpers */
+.analysis-task-id {
+  font-size: 11px;
+  font-family: monospace;
+  color: #6B7280;
+}
+
+.analysis-task-type-badge {
+  font-size: 10px;
+  font-family: monospace;
+  color: #6B7280;
+  background: #F3F4F6;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-top: 2px;
+  display: inline-block;
+}
+
+.analysis-source-badge {
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+/* Delete button (table cell) */
+.analysis-delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  color: #9CA3AF;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.analysis-delete-btn:hover {
+  color: #EF4444;
+  background: #FEE2E2;
+}
+
+/* Loading state inside table card */
+.analysis-loading-state {
+  text-align: center;
+  padding: 40px;
+  color: #6B7280;
+}
+
+/* Chart dimension containers */
+.analysis-chart-container {
+  height: 350px;
+  width: 100%;
+  min-width: 0;
+}
+
+.analysis-chart-container--tall {
+  height: 400px;
+}
+
+/* InsightCard component */
+.analysis-insight-card {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  flex: 1;
+  min-width: 200px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.analysis-insight-card__bg-icon {
+  position: absolute;
+  right: -10px;
+  top: -10px;
+  opacity: 0.1;
+}
+
+.analysis-insight-card__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.analysis-insight-card__value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.analysis-insight-card__sub {
+  font-size: 12px;
+  color: #9CA3AF;
+  margin-top: 4px;
+}
+
+/* Insight cards row */
+.analysis-insight-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+/* Muted text */
+.text-muted {
+  color: #D1D5DB;
+}
+
+.text-muted-dark {
+  color: #9CA3AF;
+}
+
+/* ================================================================
+   DASHBOARD PAGE — Extracted Component Styles
+   ================================================================ */
+
+/* Mobile status / map responsive sections */
+.mobile-status-section,
+.mobile-map-section {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-status-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 8px 0;
+  }
+  
+  .mobile-map-section {
+    display: block;
+    margin-bottom: 12px;
+    padding: 8px 0;
+  }
+
+  .mobile-map-section .fab-map-container {
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .mobile-map-section .fab-map {
+    height: 220px;
+  }
+}
+
+@media (max-width: 480px) {
+  .mobile-map-section .fab-map {
+    height: 180px;
+  }
+}
+
+/* Manual mode notice */
+.manual-mode-notice {
+  background: #FEF3C7;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #FDE68A;
+}
+
+.manual-mode-notice__content {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.manual-mode-notice__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400E;
+}
+
+.manual-mode-notice__text {
+  font-size: 13px;
+  color: #92400E;
+}
+
+/* Robot details refresh button */
+.robot-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.robot-refresh-btn:hover {
+  background: #F9FAFB;
+}
+
+.robot-refresh-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Task status badge (shared pattern) */
+.task-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* Task progress inline bar */
+.task-progress-inline {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-progress-bar {
+  width: 60px;
+  height: 4px;
+  background: #E5E7EB;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+/* No robots empty state */
+.no-robots-empty {
+  text-align: center;
+  padding: 40px;
+  color: #6B7280;
+}
+
+/* ================================================================
+   SIDEBAR — Moved from embedded <style>
+   ================================================================ */
+.sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+    transition: opacity 0.3s ease;
+    display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebar-backdrop {
+    display: block !important;
+  }
+}
+
+/* ================================================================
+   FABMAP — Moved from embedded <style>
+   ================================================================ */
+.mini-grid {
+  background: rgba(255,255,255,0.98);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15,23,42,0.14);
+  padding: 8px;
+  border: 1px solid rgba(15,23,42,0.04);
+}
+
+.mini-grid svg {
+  display: block;
+}
+
+.mini-grid text {
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 700;
+}
+
+.mini-grid circle {
+  transition: transform 0.3s ease;
+}
+
+.mini-grid circle:hover {
+  transform: scale(1.15);
+}
+
+.portrait-summary {
+  background: rgba(255,255,255,0.98);
+  border-radius: 12px;
+  border: 1px solid #e6e6e6;
+}
+
+.portrait-summary .font-medium {
+  font-weight: 600;
+}
+
+@media (min-width: 769px) {
+  .mini-grid {
+    display: none;
+  }
+}
+
+/* ================================================================
+   HEADER COMPONENT — Moved from embedded <style>
+   ================================================================ */
+
+/* Header Base */
+.header {
+    background: linear-gradient(135deg, #6B21A8 0%, #9333EA 100%);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 24px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(107, 33, 168, 0.3);
+}
+
+/* Mobile Menu Button */
+.header-menu-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    color: white;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.header-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Logo */
+.header-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.header-logo-icon {
+    width: 36px;
+    height: 36px;
+    background: #7C3AED;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.header-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: white;
+    letter-spacing: -0.5px;
+}
+
+/* Date/Time */
+.header-datetime {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-left: auto;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.header-date {
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.85;
+}
+
+.header-time {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* Device Selector */
+.header-device-wrapper {
+    flex-shrink: 0;
+}
+
+.header-device-selector {
+    background: white;
+    border: none;
+    padding: 10px 36px 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 160px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    transition: box-shadow 0.2s;
+}
+
+.header-device-selector:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+}
+
+/* Icons Section */
+.header-icons {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-status-icons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header-icon {
+    width: 34px;
+    height: 34px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.7);
+    transition: all 0.2s;
+}
+
+.header-icon.active {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: #4ade80;
+}
+
+/* Bell Button */
+.header-notif-wrapper {
+    position: relative;
+}
+
+.header-bell-btn {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.header-bell-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.header-bell-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    background: #EF4444;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    border: 2px solid #6B21A8;
+}
+
+/* Desktop Notification Popover */
+.notif-popover {
+    position: fixed;
+    top: 70px;
+    right: 24px;
+    width: 360px;
+    max-width: calc(100vw - 48px);
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    z-index: 200;
+    overflow: hidden;
+    animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.notif-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #F3F4F6;
+}
+
+.notif-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1F2937;
+    margin: 0;
+}
+
+.notif-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.notif-header-actions button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #F3F4F6;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6B7280;
+    transition: all 0.2s;
+}
+
+.notif-header-actions button:hover {
+    background: #E5E7EB;
+    color: #374151;
+}
+
+.notif-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.notif-empty {
+    padding: 48px 24px;
+    text-align: center;
+    color: #9CA3AF;
+}
+
+.notif-empty span {
+    font-size: 32px;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.notif-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.notif-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid #F9FAFB;
+    transition: background 0.2s;
+}
+
+.notif-item:hover {
+    background: #F9FAFB;
+}
+
+.notif-item.unread {
+    background: #F0F9FF;
+}
+
+.notif-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.notif-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.notif-message {
+    font-size: 13px;
+    color: #374151;
+    margin: 0 0 4px 0;
+    line-height: 1.4;
+}
+
+.notif-time {
+    font-size: 11px;
+    color: #9CA3AF;
+}
+
+.notif-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.notif-actions button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9CA3AF;
+    transition: all 0.2s;
+}
+
+.notif-actions button:hover {
+    background: #E5E7EB;
+    color: #374151;
+}
+
+/* Mobile Notification Overlay */
+.mobile-notif-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.mobile-notif-panel {
+    width: 100%;
+    max-height: 85vh;
+    background: white;
+    border-radius: 24px 24px 0 0;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease;
+    overflow: hidden;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.mobile-notif-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid #F3F4F6;
+    flex-shrink: 0;
+}
+
+.mobile-notif-header h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1F2937;
+    margin: 0;
+}
+
+.mobile-notif-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mobile-notif-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #F3F4F6;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mobile-notif-action-btn:hover {
+    background: #E5E7EB;
+}
+
+.mobile-notif-action-btn.danger {
+    background: #FEE2E2;
+    color: #DC2626;
+}
+
+.mobile-notif-action-btn.danger:hover {
+    background: #FECACA;
+}
+
+.mobile-notif-close {
+    width: 40px;
+    height: 40px;
+    background: #F3F4F6;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6B7280;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.2s;
+}
+
+.mobile-notif-close:hover {
+    background: #E5E7EB;
+}
+
+.mobile-notif-count {
+    padding: 12px 20px;
+    font-size: 13px;
+    color: #6B7280;
+    background: #F9FAFB;
+    flex-shrink: 0;
+}
+
+.mobile-notif-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mobile-notif-empty {
+    padding: 60px 24px;
+    text-align: center;
+}
+
+.mobile-notif-empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.mobile-notif-empty p {
+    font-size: 16px;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 8px 0;
+}
+
+.mobile-notif-empty span {
+    font-size: 14px;
+    color: #9CA3AF;
+}
+
+/* =========================================================================
+   ROBOT FLEET PANEL — Extracted Component Styles
+   ========================================================================= */
+
+/** Connection status indicator bulb */
+.fleet-conn-bulb {
+    width: 10px;
+    height: 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    flex: 0 0 auto;
+}
+
+/** Status dot used for battery / temperature severity */
+.fleet-status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 6px;
+}
+
+/** Task status section wrapper (centred column) */
+.fleet-task-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+}
+
+/** Completed / Failed result container */
+.fleet-task-result {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.fleet-task-result__label {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.fleet-task-result--completed { color: #059669; }
+.fleet-task-result--failed    { color: #DC2626; }
+
+/** Active phase badge pill */
+.fleet-phase-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+/** Route label below task phase */
+.fleet-task-route {
+    margin-top: 4px;
+}
+
+/** Tiny task-id label */
+.fleet-task-id {
+    font-size: 8px;
+    margin-top: 2px;
+}
+
+/* =========================================================================
+   DASHBOARD — Map Click Tooltip Styles
+   ========================================================================= */
+
+/** Purple dot marker on map click */
+.map-click-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 12px;
+    height: 12px;
+    background: #7C3AED;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.5);
+    z-index: 15;
+    pointer-events: none;
+}
+
+/** Coordinates tooltip container */
+.map-click-tooltip {
+    position: absolute;
+    background: white;
+    border-radius: 10px;
+    padding: 10px 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    border: 1px solid #E5E7EB;
+    z-index: 25;
+    min-width: 180px;
+}
+
+.map-click-tooltip__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.map-click-tooltip__label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #7C3AED;
+    text-transform: uppercase;
+}
+
+.map-click-tooltip__close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: #9CA3AF;
+    padding: 0 4px;
+}
+
+.map-click-tooltip__row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.map-click-tooltip__row--mb {
+    margin-bottom: 8px;
+}
+
+.map-click-tooltip__key {
+    color: #6B7280;
+}
+
+.map-click-tooltip__value {
+    font-weight: 600;
+    color: #111827;
+    font-family: monospace;
+}
+
+.map-click-tooltip__copy-btn {
+    width: 100%;
+    padding: 6px 10px;
+    background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/** Accent color for loaders/icons */
+.text-accent { color: #7C3AED; }
+.text-success-dark { color: #059669; }
+.text-warning-dark { color: #B45309; }

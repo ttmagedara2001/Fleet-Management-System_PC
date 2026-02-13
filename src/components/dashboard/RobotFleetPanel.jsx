@@ -76,13 +76,7 @@ function RobotCard({ robot }) {
     const batteryStatus = health.status;
     const tempStatus = getTempStatus();
 
-    const getDotStyle = (severity) => {
-        switch (severity) {
-            // Only red or green: non-critical -> green, critical -> red
-            case 'critical': return { width: 10, height: 10, borderRadius: 6, background: '#DC2626' };
-            default: return { width: 10, height: 10, borderRadius: 6, background: '#16A34A' };
-        }
-    };
+    const getDotColor = (severity) => severity === 'critical' ? '#DC2626' : '#16A34A';
 
     // Determine whether the robot is actively receiving sensor/stream data (fresh lastUpdate)
     const isReceivingData = (() => {
@@ -95,11 +89,10 @@ function RobotCard({ robot }) {
     // Connection indicator now depends ONLY on recent data receipt: green when receiving, red otherwise
     const getConnectionColor = () => (isReceivingData ? '#16A34A' : '#DC2626');
 
-    const getBatteryTextStyle = (status) => {
-        if (!status) return { color: '#111827' };
-        if (status === 'critical') return { color: '#DC2626' };
-        // Non-critical states use green
-        return { color: '#16A34A' };
+    const getBatteryTextColor = (status) => {
+        if (!status) return '#111827';
+        if (status === 'critical') return '#DC2626';
+        return '#16A34A';
     };
 
     return (
@@ -127,15 +120,8 @@ function RobotCard({ robot }) {
                     role="status"
                     aria-label={isReceivingData ? 'Receiving data' : 'No recent data'}
                     data-conn={isReceivingData ? 'true' : 'false'}
-                    style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 6,
-                        backgroundColor: getConnectionColor(),
-                        boxShadow: `0 0 6px ${getConnectionColor()}33`,
-                        border: '1px solid rgba(0,0,0,0.05)',
-                        flex: '0 0 auto'
-                    }}
+                    className="fleet-conn-bulb"
+                    style={{ backgroundColor: getConnectionColor(), boxShadow: `0 0 6px ${getConnectionColor()}33` }}
                     title={
                         `Connectivity: ${isReceivingData ? 'Receiving' : 'Not receiving'} | ` +
                         (robot.lastUpdate ? `Last update: ${new Date(robot.lastUpdate).toLocaleTimeString()} | ` : '') +
@@ -172,7 +158,7 @@ function RobotCard({ robot }) {
                     <div className="flex items-center gap-1.5">
                         <Battery size={14} className="text-primary-600" />
                         <span className="text-xs text-gray-500">Battery</span>
-                        <span style={getDotStyle(batteryStatus)} title={`Battery: ${health.label}`} />
+                        <span className="fleet-status-dot" style={{ background: getDotColor(batteryStatus) }} title={`Battery: ${health.label}`} />
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="flex-1 progress-bar">
@@ -182,8 +168,8 @@ function RobotCard({ robot }) {
                             />
                         </div>
                         <div className="w-10 text-right">
-                            <div className="text-sm font-semibold" style={getBatteryTextStyle(batteryStatus)}>{health.pct}%</div>
-                            <div className="text-xs" style={getBatteryTextStyle(batteryStatus)}>{health.label}</div>
+                            <div className="text-sm font-semibold" style={{ color: getBatteryTextColor(batteryStatus) }}>{health.pct}%</div>
+                            <div className="text-xs" style={{ color: getBatteryTextColor(batteryStatus) }}>{health.label}</div>
                         </div>
                     </div>
                 </div>
@@ -193,7 +179,7 @@ function RobotCard({ robot }) {
                     <div className="flex items-center gap-1.5">
                         <Thermometer size={14} className="text-primary-600" />
                         <span className="text-xs text-gray-500">Temp</span>
-                        <span style={getDotStyle(tempStatus)} title={`Temp status: ${tempStatus}`} />
+                        <span className="fleet-status-dot" style={{ background: getDotColor(tempStatus) }} title={`Temp status: ${tempStatus}`} />
                     </div>
                     <p className="text-sm font-semibold" style={tempStatus === 'critical' ? { color: '#DC2626' } : tempStatus === 'warning' ? { color: '#D97706' } : { color: '#16A34A' }}>
                         {robot.environment?.temp != null ? (robot.environment.temp.toFixed(1)) : '--'}°C
@@ -225,8 +211,7 @@ function RobotCard({ robot }) {
 
             {/* Task Status */}
             {robot.task && (
-                <div className="mt-0.5 pt-0.5 md:mt-1 md:pt-1 border-t border-gray-100"
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', width: '100%' }}>
+                <div className="mt-0.5 pt-0.5 md:mt-1 md:pt-1 border-t border-gray-100 fleet-task-status">
                     {/* Status indicator */}
                     {(() => {
                         const phase = robot.task.phase || 'ASSIGNED';
@@ -235,9 +220,9 @@ function RobotCard({ robot }) {
 
                         if (isCompleted) {
                             return (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                    <CheckCircle size={20} style={{ color: '#059669' }} />
-                                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#059669' }}>
+                                <div className="fleet-task-result">
+                                    <CheckCircle size={20} className="fleet-task-result--completed" />
+                                    <span className="fleet-task-result__label fleet-task-result--completed">
                                         Completed
                                     </span>
                                 </div>
@@ -245,9 +230,9 @@ function RobotCard({ robot }) {
                         }
                         if (isFailed) {
                             return (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                    <AlertTriangle size={20} style={{ color: '#DC2626' }} />
-                                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#DC2626' }}>
+                                <div className="fleet-task-result">
+                                    <AlertTriangle size={20} className="fleet-task-result--failed" />
+                                    <span className="fleet-task-result__label fleet-task-result--failed">
                                         Failed
                                     </span>
                                 </div>
@@ -257,27 +242,20 @@ function RobotCard({ robot }) {
                         const phaseStyle = PHASE_COLORS[phase] || { bg: '#E0E7FF', color: '#4F46E5' };
                         const label = PHASE_LABELS[phase] || phase;
                         return (
-                            <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                padding: '3px 10px',
-                                borderRadius: '12px',
-                                fontSize: '10px',
-                                fontWeight: '700',
-                                background: phaseStyle.bg,
-                                color: phaseStyle.color
-                            }}>
+                            <span
+                                className="fleet-phase-badge"
+                                style={{ background: phaseStyle.bg, color: phaseStyle.color }}
+                            >
                                 {label}
                             </span>
                         );
                     })()}
                     {(robot.task['initiate location'] || robot.task.source) && robot.task.destination && (
-                        <span className="text-gray-500 text-xs" style={{ marginTop: '4px' }}>
+                        <span className="text-gray-500 text-xs fleet-task-route">
                             {robot.task['initiate location'] || robot.task.source} → {robot.task.destination}
                         </span>
                     )}
-                    <span className="text-gray-400" style={{ fontSize: '8px', marginTop: '2px' }}>
+                    <span className="text-gray-400 fleet-task-id">
                         {robot.task.task_id || robot.task.taskId || ''}
                     </span>
                 </div>

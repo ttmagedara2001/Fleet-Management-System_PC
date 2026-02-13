@@ -563,16 +563,6 @@ function FabMap() {
                         <MiniGrid robot={selectedRobot || robots[0]} />
                     </div>
                 )}
-                <style>{`
-                    .mini-grid { background: rgba(255,255,255,0.98); border-radius: 10px; box-shadow: 0 10px 24px rgba(15,23,42,0.14); padding: 8px; border: 1px solid rgba(15,23,42,0.04); }
-                    .mini-grid svg { display: block; }
-                    .mini-grid text { font-family: Inter, system-ui, sans-serif; font-weight: 700; }
-                    .mini-grid circle { transition: transform 0.3s ease; }
-                    .mini-grid circle:hover { transform: scale(1.15); }
-                    .portrait-summary { background: rgba(255,255,255,0.98); border-radius: 12px; border: 1px solid #e6e6e6; }
-                    .portrait-summary .font-medium { font-weight: 600; }
-                    @media (min-width: 769px) { .mini-grid { display: none; } }
-                `}</style>
             </div>
         </div>
     );

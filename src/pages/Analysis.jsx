@@ -772,30 +772,6 @@ function Analysis() {
         link.click();
     };
 
-    // Styles (Condensed for brevity, same as original but removed comments/logs inside)
-    const styles = {
-        container: { padding: '12px', maxWidth: '100%', minHeight: '100%' },
-        header: { marginBottom: '16px' },
-        title: { fontSize: '22px', fontWeight: '600', color: '#1F2937', marginBottom: '4px' },
-        chartCard: { background: 'white', borderRadius: '14px', border: '1px solid #E5E7EB', padding: '14px', marginBottom: '16px' },
-        chartHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' },
-        chartTitle: { fontSize: '15px', fontWeight: '600', color: '#374151' },
-        filterGroup: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
-        filterPill: { padding: '5px 10px', borderRadius: '18px', fontSize: '12px', fontWeight: '500', border: '1px solid #E5E7EB', background: 'white', color: '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' },
-        filterPillActive: { background: '#F3F4F6', borderColor: '#9CA3AF' },
-        legendGroup: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-        legendItem: { display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '18px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
-        legendDot: { width: '9px', height: '9px', borderRadius: '50%' },
-        exportBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', color: '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
-        select: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #E5E7EB', fontSize: '13px', color: '#374151', background: 'white', cursor: 'pointer' },
-        tableCard: { background: 'white', borderRadius: '14px', border: '1px solid #E5E7EB', overflow: 'hidden', marginTop: '16px' },
-        tableTitle: { fontSize: '16px', fontWeight: '600', color: '#1F2937', padding: '12px 16px', borderBottom: '1px solid #E5E7EB' },
-        table: { width: '100%', borderCollapse: 'collapse' },
-        th: { textAlign: 'left', padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #E5E7EB', background: '#FAFAFA' },
-        td: { padding: '12px 16px', fontSize: '13px', color: '#6B7280', borderBottom: '1px solid #F3F4F6' },
-        statusBadge: { padding: '4px 10px', borderRadius: '18px', fontSize: '12px', fontWeight: '500' }
-    };
-
     const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED', pressure: '#3B82F6' };
 
     const getStatusStyle = (status, phase) => {
@@ -816,36 +792,26 @@ function Analysis() {
     };
 
     const InsightCard = ({ title, value, sub, color, icon: Icon }) => (
-        <div style={{
-            background: 'white',
-            padding: '20px',
-            borderRadius: '16px',
-            border: `1px solid ${color}20`,
-            flex: '1',
-            minWidth: '200px',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-            position: 'relative',
-            overflow: 'hidden'
-        }}>
-            <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1, color }}>
+        <div className="analysis-insight-card" style={{ borderColor: `${color}20` }}>
+            <div className="analysis-insight-card__bg-icon" style={{ color }}>
                 {Icon && <Icon size={80} />}
             </div>
-            <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px' }}>{title}</p>
-            <h3 style={{ fontSize: '28px', fontWeight: '700', color: '#1F2937' }}>{value}</h3>
-            <p style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '4px' }}>{sub}</p>
+            <p className="analysis-insight-card__label">{title}</p>
+            <h3 className="analysis-insight-card__value">{value}</h3>
+            <p className="analysis-insight-card__sub">{sub}</p>
         </div>
     );
 
     return (
-        <div style={styles.container}>
-            <div style={styles.header}>
-                <h1 style={styles.title}>Fleet Intelligence & Analysis</h1>
-                <p style={{ color: '#6B7280', fontSize: '14px' }}>Real-time sensor metrics and predictive fleet insights for {selectedDeviceId}</p>
+        <div className="analysis-page" style={{ maxWidth: '100%', minHeight: '100%' }}>
+            <div className="analysis-header">
+                <h1 className="analysis-title">Fleet Intelligence & Analysis</h1>
+                <p className="analysis-subtitle">Real-time sensor metrics and predictive fleet insights for {selectedDeviceId}</p>
             </div>
 
             {/* Smart Insight Panel */}
             {fleetInsights && (
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                <div className="analysis-insight-row">
                     <InsightCard
                         title="Avg Fleet Battery"
                         value={`${fleetInsights.avgBattery}%`}
@@ -877,31 +843,31 @@ function Analysis() {
                 </div>
             )}
 
-            <div style={styles.chartCard}>
-                <div style={styles.chartHeader}>
+            <div className="analysis-chart-card">
+                <div className="analysis-chart-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                        <span style={styles.chartTitle}>Historical Environmental Trends</span>
-                        <div style={styles.filterGroup}>
-                            <button style={{ ...styles.filterPill, ...(timeRange === '6h' ? styles.filterPillActive : {}) }} onClick={() => setTimeRange('6h')}>
+                        <span className="analysis-chart-title">Historical Environmental Trends</span>
+                        <div className="analysis-controls">
+                            <button className={`analysis-filter-pill ${timeRange === '6h' ? 'analysis-filter-pill--active' : ''}`} onClick={() => setTimeRange('6h')}>
                                 <Clock size={12} /> Last 6 Hours
                             </button>
-                            <button style={styles.filterPill}>{displayInterval}</button>
-                            <button style={styles.filterPill}>{chartData.length} points</button>
+                            <button className="analysis-filter-pill">{displayInterval}</button>
+                            <button className="analysis-filter-pill">{chartData.length} points</button>
                         </div>
                     </div>
 
-                    <div style={styles.legendGroup}>
+                    <div className="analysis-legend">
                         {['temp', 'humidity', 'pressure'].map(metric => (
                             <div key={metric}
+                                className="analysis-legend-item"
                                 style={{
-                                    ...styles.legendItem,
                                     background: activeMetrics[metric] ?
                                         (metric === 'temp' ? '#FEF3C7' : metric === 'humidity' ? '#D1FAE5' : '#EDE9FE') : '#F9FAFB',
                                     border: `1px solid ${activeMetrics[metric] ? metricColors[metric] : '#E5E7EB'}`
                                 }}
                                 onClick={() => toggleMetric(metric)}
                             >
-                                <div style={{ ...styles.legendDot, background: metricColors[metric] }} />
+                                <div className="analysis-legend-dot" style={{ background: metricColors[metric] }} />
                                 <span style={{ color: activeMetrics[metric] ? 'inherit' : '#9CA3AF' }}>
                                     {metric === 'temp' ? 'Temp' : metric === 'pressure' ? 'Pressure' : metric.charAt(0).toUpperCase() + metric.slice(1)}
                                 </span>
@@ -910,14 +876,14 @@ function Analysis() {
                     </div>
                 </div>
 
-                <div className="analysis-controls" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px', marginBottom: '16px' }}>
-                    <button className="export-btn" style={styles.exportBtn} onClick={fetchData} disabled={isLoading} aria-label="Refresh">
+                <div className="analysis-controls">
+                    <button className="analysis-export-btn" onClick={fetchData} disabled={isLoading} aria-label="Refresh">
                         <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
                     </button>
-                    <button className="export-btn" style={styles.exportBtn} onClick={handleExportCSV}>
+                    <button className="analysis-export-btn" onClick={handleExportCSV}>
                         <Download size={14} /> Export CSV
                     </button>
-                    <select style={styles.select} value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+                    <select className="analysis-select" value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
                         <option value="1h">1h</option>
                         <option value="6h">6h</option>
                         <option value="12h">12h</option>
@@ -925,7 +891,7 @@ function Analysis() {
                     </select>
                 </div>
 
-                <div style={{ height: '350px', width: '100%', minWidth: 0 }}>
+                <div className="analysis-chart-container">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
                             <defs>
@@ -947,37 +913,37 @@ function Analysis() {
             </div>
 
             {/* Robot Historical Trends */}
-            <div style={styles.chartCard} id="robot-history-card">
-                <div style={{ ...styles.chartHeader, alignItems: 'center' }}>
+            <div className="analysis-chart-card" id="robot-history-card">
+                <div className="analysis-chart-header">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span style={styles.chartTitle}>Robot Historical Trends</span>
-                        <span style={{ fontSize: '12px', color: '#9CA3AF' }}>Battery and temperature over time for a selected robot</span>
+                        <span className="analysis-chart-title">Robot Historical Trends</span>
+                        <span className="text-muted-dark">Battery and temperature over time for a selected robot</span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select style={styles.select} value={selectedRobotForHistory || ''} onChange={(e) => setSelectedRobotForHistory(e.target.value)}>
+                        <select className="analysis-select" value={selectedRobotForHistory || ''} onChange={(e) => setSelectedRobotForHistory(e.target.value)}>
                             {deviceRobots.map(r => <option key={r.id} value={r.id}>{r.name || r.id}</option>)}
                         </select>
-                        <div style={styles.legendGroup}>
+                        <div className="analysis-legend">
                             {['battery', 'temp'].map(metric => (
                                 <div key={metric}
+                                    className="analysis-legend-item"
                                     style={{
-                                        ...styles.legendItem,
                                         background: activeRobotMetrics[metric] ? '#F9FAFB' : '#FFF',
                                         border: `1px solid ${activeRobotMetrics[metric] ? metricColors[metric] : '#E5E7EB'}`
                                     }}
                                     onClick={() => setActiveRobotMetrics(prev => ({ ...prev, [metric]: !prev[metric] }))}
                                 >
-                                    <div style={{ ...styles.legendDot, background: metricColors[metric] }} />
+                                    <div className="analysis-legend-dot" style={{ background: metricColors[metric] }} />
                                     <span style={{ color: activeRobotMetrics[metric] ? 'inherit' : '#9CA3AF' }}>{metric === 'temp' ? 'Temp' : 'Battery'}</span>
                                 </div>
                             ))}
                         </div>
-                        <button className="export-btn" style={styles.exportBtn} onClick={fetchRobotHistory} aria-label="Refresh"><RefreshCw size={14} /></button>
+                        <button className="analysis-export-btn" onClick={fetchRobotHistory} aria-label="Refresh"><RefreshCw size={14} /></button>
                     </div>
                 </div>
 
-                <div style={{ height: '400px', width: '100%', minWidth: 0 }}>
+                <div className="analysis-chart-container analysis-chart-container--tall">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={robotChartData} margin={{ top: 20, right: 60, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -994,30 +960,30 @@ function Analysis() {
             </div>
 
 {/* Per-Robot Task History Tables (last 24 hours) */}
-            <div style={{ marginTop: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#1F2937' }}>
+            <div className="analysis-task-section">
+                <div className="analysis-task-section__header">
+                    <h2 className="analysis-task-section__title">
                         <Bot size={18} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} />
                         Robot Task History (24h)
                     </h2>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button style={styles.exportBtn} onClick={fetchTaskHistory} disabled={historyLoading} aria-label="Refresh all task history">
+                        <button className="analysis-export-btn" onClick={fetchTaskHistory} disabled={historyLoading} aria-label="Refresh all task history">
                             {historyLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                             Refresh All
                         </button>
-                        <span style={{ fontSize: 13, color: '#6B7280' }}>
+                        <span className="analysis-counter-total">
                             {Object.values(robotTaskMap).reduce((sum, arr) => sum + arr.length, 0)} total entries
                         </span>
                     </div>
                 </div>
 
                 {historyLoading && Object.keys(robotTaskMap).length === 0 ? (
-                    <div style={{ ...styles.tableCard, textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+                    <div className="analysis-loading-state">
                         <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 12px' }} />
                         <p>Loading task history...</p>
                     </div>
                 ) : deviceRobots.length === 0 ? (
-                    <div style={{ ...styles.tableCard, textAlign: 'center', padding: '40px', color: '#6B7280' }}>
+                    <div className="analysis-loading-state">
                         No robots registered for this device
                     </div>
                 ) : (
@@ -1065,49 +1031,38 @@ function Analysis() {
                             : '#9CA3AF';
 
                         return (
-                            <div key={robotId} style={{ ...styles.tableCard, marginBottom: '12px' }}>
+                            <div key={robotId} className="analysis-robot-card">
                                 {/* Robot header - clickable to expand/collapse */}
                                 <div
                                     onClick={() => setExpandedRobots(prev => ({ ...prev, [robotId]: !isExpanded }))}
-                                    style={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        padding: '12px 16px', cursor: 'pointer', userSelect: 'none',
-                                        borderBottom: isExpanded ? '1px solid #E5E7EB' : 'none',
-                                        transition: 'background 0.15s',
-                                        borderRadius: isExpanded ? '14px 14px 0 0' : '14px'
-                                    }}
-                                    onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                    className={`analysis-robot-header ${isExpanded ? 'analysis-robot-header--expanded' : ''}`}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                         <span style={{ fontSize: '16px' }}>{isExpanded ? '▼' : '▶'}</span>
                                         <Bot size={18} style={{ color: stateColor }} />
                                         <div>
-                                            <span style={{ fontWeight: '600', color: '#1F2937', fontSize: '14px' }}>
+                                            <span className="analysis-robot-label">
                                                 {robot.name || robotId}
                                             </span>
-                                            <span style={{ marginLeft: '8px', fontSize: '12px', color: '#9CA3AF' }}>
+                                            <span className="analysis-robot-id">
                                                 {robotId}
                                             </span>
                                         </div>
-                                        <span style={{
-                                            padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: '600',
-                                            background: `${stateColor}18`, color: stateColor
-                                        }}>
+                                        <span className="analysis-state-badge" style={{ background: `${stateColor}18`, color: stateColor }}>
                                             {robotState}
                                         </span>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <span style={{ ...styles.statusBadge, background: '#DBEAFE', color: '#1D4ED8', fontSize: '11px' }}>
+                                    <div className="analysis-counter-row">
+                                        <span className="analysis-counter-badge analysis-counter-badge--allocated">
                                             {counts.allocated} Allocated
                                         </span>
-                                        <span style={{ ...styles.statusBadge, background: '#FEF3C7', color: '#92400E', fontSize: '11px' }}>
+                                        <span className="analysis-counter-badge analysis-counter-badge--progress">
                                             {counts.incomplete} In Progress
                                         </span>
-                                        <span style={{ ...styles.statusBadge, background: '#D1FAE5', color: '#065F46', fontSize: '11px' }}>
+                                        <span className="analysis-counter-badge analysis-counter-badge--completed">
                                             {counts.completed} Completed
                                         </span>
-                                        <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '500' }}>
+                                        <span className="analysis-counter-total">
                                             {counts.all} total
                                         </span>
                                     </div>
@@ -1117,7 +1072,7 @@ function Analysis() {
                                 {isExpanded && (
                                     <div>
                                         {/* Status filter tabs */}
-                                        <div style={{ display: 'flex', gap: '4px', padding: '8px 16px', borderBottom: '1px solid #F3F4F6', background: '#FAFAFA' }}>
+                                        <div className="analysis-filter-bar">
                                             {[
                                                 { key: 'all', label: 'All', count: counts.all },
                                                 { key: 'allocated', label: 'Allocated', count: counts.allocated },
@@ -1127,13 +1082,7 @@ function Analysis() {
                                                 <button
                                                     key={tab.key}
                                                     onClick={(e) => { e.stopPropagation(); setRobotStatusFilter(prev => ({ ...prev, [robotId]: tab.key })); }}
-                                                    style={{
-                                                        padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '600',
-                                                        border: filter === tab.key ? '1px solid #6366F1' : '1px solid #E5E7EB',
-                                                        background: filter === tab.key ? '#EEF2FF' : 'white',
-                                                        color: filter === tab.key ? '#4F46E5' : '#6B7280',
-                                                        cursor: 'pointer', transition: 'all 0.15s'
-                                                    }}
+                                                    className={`analysis-filter-tab ${filter === tab.key ? 'analysis-filter-tab--active' : ''}`}
                                                 >
                                                     {tab.label} ({tab.count})
                                                 </button>
@@ -1141,24 +1090,24 @@ function Analysis() {
                                         </div>
 
                                         {/* Task table */}
-                                        <div style={{ overflowX: 'auto', maxHeight: 280, overflowY: 'auto' }}>
-                                            <table style={styles.table}>
+                                        <div className="analysis-task-table-wrap">
+                                            <table className="analysis-table">
                                                 <thead>
                                                     <tr>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Allocated At</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Task Name</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Task ID</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Status</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Progress</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Route</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px' }}>Source</th>
-                                                        <th style={{ ...styles.th, fontSize: '12px', width: '50px', textAlign: 'center' }}>Actions</th>
+                                                        <th>Allocated At</th>
+                                                        <th>Task Name</th>
+                                                        <th>Task ID</th>
+                                                        <th>Status</th>
+                                                        <th>Progress</th>
+                                                        <th>Route</th>
+                                                        <th>Source</th>
+                                                        <th style={{ width: '50px', textAlign: 'center' }}>Actions</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {filteredTasks.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan="8" style={{ ...styles.td, textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
+                                                            <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF' }}>
                                                                 {filter === 'all'
                                                                     ? `No tasks recorded for ${robot.name || robotId} in the last 24 hours`
                                                                     : `No ${filter} tasks for ${robot.name || robotId}`}
@@ -1196,46 +1145,40 @@ function Analysis() {
                                                         }[row.source] || { bg: '#F3F4F6', color: '#6B7280', label: row.source || '?' };
 
                                                         return (
-                                                            <tr key={`${row.taskId}-${row.timestamp}-${idx}`} style={{ transition: 'background 0.15s' }}
-                                                                onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-                                                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                                                            >
-                                                                <td style={{ ...styles.td, fontSize: '12px', whiteSpace: 'nowrap' }}>
+                                                            <tr key={`${row.taskId}-${row.timestamp}-${idx}`} className="analysis-table-row">
+                                                                <td style={{ whiteSpace: 'nowrap' }}>
                                                                     {row.allocatedAt ? (
                                                                         <>
                                                                             {new Date(row.allocatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                                                                            <div style={{ fontSize: '10px', color: '#9CA3AF' }}>
+                                                                            <div className="text-muted-dark" style={{ fontSize: '10px' }}>
                                                                                 {new Date(row.allocatedAt).toLocaleDateString()}
                                                                             </div>
                                                                         </>
                                                                     ) : (
-                                                                        <span style={{ color: '#D1D5DB' }}>—</span>
+                                                                        <span className="text-muted">—</span>
                                                                     )}
                                                                 </td>
-                                                                <td style={{ ...styles.td, fontSize: '12px' }}>
+                                                                <td>
                                                                     <div style={{ fontWeight: '600', color: '#1F2937' }}>
                                                                         {row.taskName || 'Unnamed Task'}
                                                                     </div>
                                                                     {row.rawTaskType && (
-                                                                        <span style={{
-                                                                            fontSize: '10px', fontFamily: 'monospace', color: '#6B7280',
-                                                                            background: '#F3F4F6', padding: '1px 4px', borderRadius: '4px', marginTop: '2px', display: 'inline-block'
-                                                                        }}>
+                                                                        <span className="analysis-task-type-badge">
                                                                             {row.rawTaskType}
                                                                         </span>
                                                                     )}
                                                                 </td>
-                                                                <td style={{ ...styles.td, fontSize: '11px', fontFamily: 'monospace', color: '#6B7280' }}>
+                                                                <td style={{ fontFamily: 'monospace' }}>
                                                                     {row.taskId ? (
                                                                         <span title={row.taskId}>
                                                                             {row.taskId.length > 12 ? `${row.taskId.slice(0, 12)}…` : row.taskId}
                                                                         </span>
                                                                     ) : (
-                                                                        <span style={{ color: '#D1D5DB' }}>—</span>
+                                                                        <span className="text-muted">—</span>
                                                                     )}
                                                                 </td>
-                                                                <td style={styles.td}>
-                                                                    <span style={{ ...styles.statusBadge, ...getStatusStyle(row.status, row.phase), fontSize: '11px' }}>
+                                                                <td>
+                                                                    <span className="analysis-status-badge" style={getStatusStyle(row.status, row.phase)}>
                                                                         {row.status}
                                                                     </span>
                                                                     {row.elapsedMs && (
@@ -1244,7 +1187,7 @@ function Analysis() {
                                                                         </div>
                                                                     )}
                                                                 </td>
-                                                                <td style={styles.td}>
+                                                                <td>
                                                                     {progressVal != null ? (
                                                                         <div>
                                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1263,28 +1206,19 @@ function Analysis() {
                                                                         <span style={{ fontSize: '11px', color: '#D1D5DB' }}>—</span>
                                                                     )}
                                                                 </td>
-                                                                <td style={{ ...styles.td, fontSize: '11px', color: '#6B7280', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route !== '—' ? route : undefined}>
+                                                                <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route !== '—' ? route : undefined}>
                                                                     {route}
                                                                 </td>
-                                                                <td style={styles.td}>
-                                                                    <span style={{
-                                                                        padding: '1px 5px', borderRadius: '6px', fontSize: '9px', fontWeight: '600',
-                                                                        background: sourceBadge.bg, color: sourceBadge.color
-                                                                    }}>
+                                                                <td>
+                                                                    <span className="analysis-source-badge" style={{ background: sourceBadge.bg, color: sourceBadge.color }}>
                                                                         {sourceBadge.label}
                                                                     </span>
                                                                 </td>
-                                                                <td style={{ ...styles.td, textAlign: 'center' }}>
+                                                                <td style={{ textAlign: 'center' }}>
                                                                     <button
                                                                         onClick={(e) => { e.stopPropagation(); handleDeleteTask(robotId, row); }}
                                                                         title={`Delete task${row.taskName ? ': ' + row.taskName : ''}`}
-                                                                        style={{
-                                                                            background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-                                                                            borderRadius: '6px', color: '#9CA3AF', transition: 'all 0.15s',
-                                                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
-                                                                        }}
-                                                                        onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEE2E2'; }}
-                                                                        onMouseLeave={e => { e.currentTarget.style.color = '#9CA3AF'; e.currentTarget.style.background = 'none'; }}
+                                                                        className="analysis-delete-btn"
                                                                     >
                                                                         <Trash2 size={14} />
                                                                     </button>
