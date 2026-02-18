@@ -522,6 +522,46 @@ export function DeviceProvider({ children }) {
                     }
                 }
             }
+
+            // Manual mode advisory: notify the user to turn on AC / Air Purifier
+            if (mode === 'MANUAL') {
+                const now = Date.now();
+                const lastManual = autoActionTimestamps.current[`${deviceId}_manual`] || 0;
+                if (now - lastManual > 60000) { // throttle manual advisories to once per 60s
+                    const currentAc = deviceData[deviceId]?.state?.ac_power;
+                    const currentPurifier = deviceData[deviceId]?.state?.air_purifier;
+                    const acIsOff = !currentAc || currentAc === 'OFF' || currentAc === 'INACTIVE';
+                    const purifierIsOff = !currentPurifier || currentPurifier === 'OFF' || currentPurifier === 'INACTIVE';
+
+                    const tempVal = payload.temperature ?? payload.temp ?? payload.ambient_temp;
+                    const humVal = payload.humidity ?? payload.ambient_hum;
+                    let advised = false;
+
+                    // Advise turning on AC when temperature exceeds thresholds and AC is off
+                    if (tempVal != null && acIsOff && (tempVal > thresholds.temperature.max || tempVal < thresholds.temperature.min)) {
+                        addAlert({
+                            type: 'warning',
+                            deviceId,
+                            message: `Manual Mode: Temperature is ${tempVal}°C — please turn ON the Air Condition (AC) from the dashboard controls`,
+                            timestamp: Date.now()
+                        });
+                        advised = true;
+                    }
+
+                    // Advise turning on Air Purifier when humidity exceeds thresholds and purifier is off
+                    if (humVal != null && purifierIsOff && (humVal > thresholds.humidity.max || humVal < thresholds.humidity.min)) {
+                        addAlert({
+                            type: 'warning',
+                            deviceId,
+                            message: `Manual Mode: Humidity is ${humVal}% — please turn ON the Air Purifier from the dashboard controls`,
+                            timestamp: Date.now()
+                        });
+                        advised = true;
+                    }
+
+                    if (advised) autoActionTimestamps.current[`${deviceId}_manual`] = now;
+                }
+            }
         } catch (err) {
             console.error('[AutoControl] Error evaluating automatic controls', err);
         }

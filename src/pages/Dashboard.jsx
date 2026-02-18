@@ -485,12 +485,41 @@ function ControlToggles() {
     const state = currentDeviceData?.state || {};
     const [isLoading, setIsLoading] = useState({ ac: false, airPurifier: false });
     const [overrides, setOverrides] = useState({ ac: null, airPurifier: null });
+    const overrideTimers = useRef({ ac: null, airPurifier: null });
 
     // Use WebSocket state or override (optimistic)
     const acValue = overrides.ac ?? state.ac_power;
     const airPurifierValue = overrides.airPurifier ?? state.air_purifier;
     const acEnabled = acValue === 'ON' || acValue === 'ACTIVE';
     const airPurifierEnabled = airPurifierValue === 'ON' || airPurifierValue === 'ACTIVE';
+
+    // Clear AC override once real state confirms the desired value
+    useEffect(() => {
+        if (overrides.ac !== null && state.ac_power === overrides.ac) {
+            setOverrides(prev => ({ ...prev, ac: null }));
+            if (overrideTimers.current.ac) { clearTimeout(overrideTimers.current.ac); overrideTimers.current.ac = null; }
+        }
+    }, [state.ac_power, overrides.ac]);
+
+    // Clear Air Purifier override once real state confirms the desired value
+    useEffect(() => {
+        if (overrides.airPurifier !== null) {
+            const desiredOn = overrides.airPurifier === 'ACTIVE' || overrides.airPurifier === 'ON';
+            const actualOn = state.air_purifier === 'ACTIVE' || state.air_purifier === 'ON';
+            if (desiredOn === actualOn) {
+                setOverrides(prev => ({ ...prev, airPurifier: null }));
+                if (overrideTimers.current.airPurifier) { clearTimeout(overrideTimers.current.airPurifier); overrideTimers.current.airPurifier = null; }
+            }
+        }
+    }, [state.air_purifier, overrides.airPurifier]);
+
+    // Cleanup timers on unmount
+    useEffect(() => {
+        return () => {
+            if (overrideTimers.current.ac) clearTimeout(overrideTimers.current.ac);
+            if (overrideTimers.current.airPurifier) clearTimeout(overrideTimers.current.airPurifier);
+        };
+    }, []);
 
     // Read system mode from saved settings (fallback to MANUAL)
     let saved = {};
@@ -520,7 +549,9 @@ function ControlToggles() {
             alert('Failed to toggle AC. Please try again.');
         } finally {
             setIsLoading(prev => ({ ...prev, ac: false }));
-            setTimeout(() => setOverrides(prev => ({ ...prev, ac: null })), 3000);
+            // Safety fallback: clear override after 30s if WebSocket never confirms
+            if (overrideTimers.current.ac) clearTimeout(overrideTimers.current.ac);
+            overrideTimers.current.ac = setTimeout(() => setOverrides(prev => ({ ...prev, ac: null })), 30000);
         }
     };
 
@@ -540,7 +571,9 @@ function ControlToggles() {
             alert('Failed to toggle Air Purifier. Please try again.');
         } finally {
             setIsLoading(prev => ({ ...prev, airPurifier: false }));
-            setTimeout(() => setOverrides(prev => ({ ...prev, airPurifier: null })), 3000);
+            // Safety fallback: clear override after 30s if WebSocket never confirms
+            if (overrideTimers.current.airPurifier) clearTimeout(overrideTimers.current.airPurifier);
+            overrideTimers.current.airPurifier = setTimeout(() => setOverrides(prev => ({ ...prev, airPurifier: null })), 30000);
         }
     };
 
@@ -666,7 +699,7 @@ function RobotDetails() {
     };
 
     const getTempClass = (temp) => {
-        if (temp == null) return '';
+        if (temp == null) return '';                                                                                                                                                        
         if (temp > 32) return 'critical';
         if (temp > 28) return 'warning';
         return 'normal';
