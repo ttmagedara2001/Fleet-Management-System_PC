@@ -626,26 +626,50 @@ function ManualModeNotice() {
         if (savedRaw) saved = JSON.parse(savedRaw);
     } catch { /* corrupt settings — use defaults */ }
     const mode = saved.systemMode || 'MANUAL';
-    const thresholds = saved.thresholds || { temperature: { min: 18, max: 28 }, humidity: { min: 30, max: 60 } };
+    const thresholds = saved.thresholds || { temperature: { min: 18, max: 28, critical: 44 }, humidity: { min: 30, max: 60, critical: 85 } };
 
     if (mode !== 'MANUAL') return null;
 
-    const suggestions = [];
     const temp = env.ambient_temp ?? env.temperature ?? env.temp;
     const hum = env.ambient_hum ?? env.humidity ?? env.hum;
+    const deviceState = currentDeviceData?.state || {};
+    const acIsOff = !deviceState.ac_power || deviceState.ac_power === 'OFF' || deviceState.ac_power === 'INACTIVE';
+    const purifierIsOff = !deviceState.air_purifier || deviceState.air_purifier === 'OFF' || deviceState.air_purifier === 'INACTIVE';
 
-    if (temp != null && temp > thresholds.temperature.max) suggestions.push('Air Condition (AC)');
-    if (hum != null && (hum > thresholds.humidity.max || hum < thresholds.humidity.min)) suggestions.push('Air Purifier');
+    // Determine severity for each system
+    const tempCritical = temp != null && thresholds.temperature.critical && temp > thresholds.temperature.critical;
+    const tempWarning = temp != null && (temp > thresholds.temperature.max || temp < thresholds.temperature.min);
+    const humCritical = hum != null && thresholds.humidity.critical && hum > thresholds.humidity.critical;
+    const humWarning = hum != null && (hum > thresholds.humidity.max || hum < thresholds.humidity.min);
 
-    if (suggestions.length === 0) return null;
+    const needAc = acIsOff && (tempCritical || tempWarning);
+    const needPurifier = purifierIsOff && (humCritical || humWarning);
+    const anyCritical = (needAc && tempCritical) || (needPurifier && humCritical);
+
+    if (!needAc && !needPurifier) return null;
 
     return (
-        <div className="manual-mode-notice">
+        <div className={`manual-mode-notice ${anyCritical ? 'manual-mode-notice--critical' : ''}`}>
             <div className="manual-mode-notice__content">
-                <AlertTriangle size={18} className="text-warning-dark" />
+                <AlertTriangle size={18} className={anyCritical ? 'text-red-500' : 'text-warning-dark'} />
                 <div>
-                    <div className="manual-mode-notice__title">Manual Mode Active</div>
-                    <div className="manual-mode-notice__text">Recommended: Turn ON {suggestions.join(' and ')}</div>
+                    <div className="manual-mode-notice__title">
+                        {anyCritical ? 'CRITICAL — Immediate Action Required' : 'Manual Mode — Action Recommended'}
+                    </div>
+                    {needAc && (
+                        <div className="manual-mode-notice__text">
+                            {tempCritical
+                                ? `Temperature is critically high at ${temp.toFixed(1)}°C — turn ON the AC immediately`
+                                : `Temperature is ${temp.toFixed(1)}°C (${temp > thresholds.temperature.max ? 'above max' : 'below min'}) — turn ON the AC`}
+                        </div>
+                    )}
+                    {needPurifier && (
+                        <div className="manual-mode-notice__text">
+                            {humCritical
+                                ? `Humidity is critically high at ${hum.toFixed(1)}% — turn ON the Air Purifier immediately`
+                                : `Humidity is ${hum.toFixed(1)}% (${hum > thresholds.humidity.max ? 'above max' : 'below min'}) — turn ON the Air Purifier`}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

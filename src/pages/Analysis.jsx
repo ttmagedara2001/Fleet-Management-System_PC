@@ -15,7 +15,17 @@ import {
     Clock,
     AlertCircle,
     Bot,
-    Trash2
+    Trash2,
+    X,
+    Calendar,
+    SlidersHorizontal,
+    FileText,
+    CheckSquare,
+    Square,
+    BarChart2,
+    LineChart as LineChartIcon,
+    ListChecks,
+    Gauge
 } from 'lucide-react';
 import {
     LineChart,
@@ -35,13 +45,271 @@ import { getRobotsForDevice } from '../config/robotRegistry';
 import { TASK_PHASES, PHASE_LABELS, PHASE_COLORS, computePhaseProgress, findRoomAtPoint, ROOMS } from '../utils/telemetryMath';
 import { getThresholds as getThresholdsShared } from '../utils/thresholds';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Export Modal Component
+// ─────────────────────────────────────────────────────────────────────────────
+function ExportModal({ isOpen, onClose, onExport, deviceId, chartData, chartRobotData, robotChartData, robotTaskMap, deviceRobots, selectedRobotForHistory }) {
+    const [config, setConfig] = useState({
+        timeRangePreset: '6h',
+        customStart: '',
+        customEnd: '',
+        interval: 'auto',
+        sections: {
+            environment: true,
+            robotSensors: true,
+            robotHistory: true,
+            taskHistory: true,
+        }
+    });
+
+    if (!isOpen) return null;
+
+    const timePresets = [
+        { value: '1h',     label: 'Last 1h' },
+        { value: '6h',     label: 'Last 6h' },
+        { value: '12h',    label: 'Last 12h' },
+        { value: '24h',    label: 'Last 24h' },
+        { value: '7d',     label: 'Last 7d' },
+        { value: 'custom', label: 'Custom' },
+    ];
+
+    const intervalOptions = [
+        { value: 'auto',    label: 'Auto (all)',   sub: 'unfiltered' },
+        { value: '5000',    label: '5 Seconds',    sub: '~720/hr' },
+        { value: '30000',   label: '30 Seconds',   sub: '~120/hr' },
+        { value: '60000',   label: '1 Minute',     sub: '~60/hr' },
+        { value: '300000',  label: '5 Minutes',    sub: '~12/hr' },
+        { value: '900000',  label: '15 Minutes',   sub: '~4/hr' },
+        { value: '3600000', label: '1 Hour',       sub: '1/hr' },
+    ];
+
+    const applyIntervalCount = (data, ms) => {
+        if (!ms) return data.length;
+        const result = [];
+        let lastTs = -Infinity;
+        data.forEach(p => {
+            const ts = new Date(p.fullTime || p.timestamp || 0).getTime();
+            if (ts - lastTs >= ms) { result.push(p); lastTs = ts; }
+        });
+        return result.length;
+    };
+
+    const intervalMs = config.interval === 'auto' ? 0 : parseInt(config.interval);
+
+    const featureCards = [
+        {
+            key: 'environment',
+            label: 'Environment Trends',
+            sub: 'Temperature · Humidity · Pressure',
+            icon: <Thermometer size={18} />,
+            count: applyIntervalCount(chartData, intervalMs),
+            color: '#D97706',
+        },
+        {
+            key: 'robotSensors',
+            label: 'Robot Fleet Sensors',
+            sub: 'Battery & Temp per robot (latest)',
+            icon: <Battery size={18} />,
+            count: chartRobotData.length,
+            color: '#7C3AED',
+        },
+        {
+            key: 'robotHistory',
+            label: 'Robot Historical Trends',
+            sub: `${deviceRobots.find(r => r.id === selectedRobotForHistory)?.name || selectedRobotForHistory || 'Selected robot'} over time`,
+            icon: <LineChartIcon size={18} />,
+            count: applyIntervalCount(robotChartData, intervalMs),
+            color: '#2563EB',
+        },
+        {
+            key: 'taskHistory',
+            label: 'Task History (24h)',
+            sub: 'All robot task entries',
+            icon: <ListChecks size={18} />,
+            count: Object.values(robotTaskMap).reduce((s, a) => s + a.length, 0),
+            color: '#059669',
+        },
+    ];
+
+    const totalRows = featureCards.reduce((sum, f) => sum + (config.sections[f.key] ? f.count : 0), 0);
+    const activeSections = Object.values(config.sections).filter(Boolean).length;
+
+    const toggleSection = (key) => setConfig(prev => ({
+        ...prev,
+        sections: { ...prev.sections, [key]: !prev.sections[key] }
+    }));
+
+    return (
+        <div className="export-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+            <div className="export-modal" onClick={e => e.stopPropagation()}>
+
+                {/* ── Header ── */}
+                <div className="export-modal__header">
+                    <div className="export-modal__title-row">
+                        <div className="export-modal__icon-wrap">
+                            <FileText size={18} />
+                        </div>
+                        <div>
+                            <h2 className="export-modal__title">Export Report</h2>
+                            <p className="export-modal__subtitle">Configure your CSV export options</p>
+                        </div>
+                    </div>
+                    <button className="export-modal__close" onClick={onClose} aria-label="Close">
+                        <X size={18} />
+                    </button>
+                </div>
+
+                <div className="export-modal__body">
+
+                    {/* ── Time Range ── */}
+                    <div className="export-modal__section">
+                        <div className="export-modal__section-title">
+                            <Calendar size={13} />
+                            Time Range
+                        </div>
+                        <div className="export-modal__time-presets">
+                            {timePresets.map(p => (
+                                <button
+                                    key={p.value}
+                                    className={`export-modal__preset-btn${config.timeRangePreset === p.value ? ' active' : ''}`}
+                                    onClick={() => setConfig(prev => ({ ...prev, timeRangePreset: p.value }))}
+                                >
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
+                        {config.timeRangePreset === 'custom' && (
+                            <div className="export-modal__custom-dates">
+                                <div className="export-modal__date-field">
+                                    <label>Start Date &amp; Time</label>
+                                    <input
+                                        type="datetime-local"
+                                        value={config.customStart}
+                                        onChange={e => setConfig(prev => ({ ...prev, customStart: e.target.value }))}
+                                        className="export-modal__date-input"
+                                    />
+                                </div>
+                                <div className="export-modal__date-field">
+                                    <label>End Date &amp; Time</label>
+                                    <input
+                                        type="datetime-local"
+                                        value={config.customEnd}
+                                        onChange={e => setConfig(prev => ({ ...prev, customEnd: e.target.value }))}
+                                        className="export-modal__date-input"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ── Data Interval ── */}
+                    <div className="export-modal__section">
+                        <div className="export-modal__section-title">
+                            <SlidersHorizontal size={13} />
+                            Data Interval
+                            <span className="export-modal__section-hint">Controls sampling frequency for time-series sections</span>
+                        </div>
+                        <div className="export-modal__interval-grid">
+                            {intervalOptions.map(opt => (
+                                <button
+                                    key={opt.value}
+                                    className={`export-modal__interval-btn${config.interval === opt.value ? ' active' : ''}`}
+                                    onClick={() => setConfig(prev => ({ ...prev, interval: opt.value }))}
+                                >
+                                    <span className="export-modal__interval-label">{opt.label}</span>
+                                    <span className="export-modal__interval-sub">{opt.sub}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── Features / Sections ── */}
+                    <div className="export-modal__section">
+                        <div className="export-modal__section-title">
+                            <BarChart2 size={13} />
+                            Include in Export
+                            <span className="export-modal__section-hint">Select sections & charts to include</span>
+                        </div>
+                        <div className="export-modal__features-grid">
+                            {featureCards.map(({ key, label, sub, icon, count, color }) => (
+                                <div
+                                    key={key}
+                                    className={`export-modal__feature-card${config.sections[key] ? ' active' : ''}`}
+                                    onClick={() => toggleSection(key)}
+                                    style={config.sections[key] ? { borderColor: color, background: `${color}0d` } : {}}
+                                >
+                                    <div className="export-modal__feature-icon" style={{ color: config.sections[key] ? color : '#9CA3AF', background: config.sections[key] ? `${color}15` : '#F3F4F6' }}>
+                                        {icon}
+                                    </div>
+                                    <div className="export-modal__feature-info">
+                                        <div className="export-modal__feature-label" style={config.sections[key] ? { color } : {}}>
+                                            {config.sections[key] ? <CheckSquare size={13} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} /> : <Square size={13} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle', color: '#9CA3AF' }} />}
+                                            {label}
+                                        </div>
+                                        <div className="export-modal__feature-sub">{sub}</div>
+                                    </div>
+                                    <div className="export-modal__feature-count" style={config.sections[key] ? { background: `${color}18`, color, borderColor: `${color}30` } : {}}>
+                                        {count.toLocaleString()} rows
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── Summary strip ── */}
+                    <div className="export-modal__summary">
+                        <div className="export-modal__summary-item">
+                            <span className="export-modal__summary-key">Device</span>
+                            <strong className="export-modal__summary-val">{deviceId}</strong>
+                        </div>
+                        <div className="export-modal__summary-divider" />
+                        <div className="export-modal__summary-item">
+                            <span className="export-modal__summary-key">Sections</span>
+                            <strong className="export-modal__summary-val">{activeSections} / 4 selected</strong>
+                        </div>
+                        <div className="export-modal__summary-divider" />
+                        <div className="export-modal__summary-item">
+                            <span className="export-modal__summary-key">Est. Rows</span>
+                            <strong className="export-modal__summary-val">~{totalRows.toLocaleString()}</strong>
+                        </div>
+                        <div className="export-modal__summary-divider" />
+                        <div className="export-modal__summary-item">
+                            <span className="export-modal__summary-key">Format</span>
+                            <strong className="export-modal__summary-val">CSV · UTF-8 · BOM</strong>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Footer ── */}
+                <div className="export-modal__footer">
+                    <button className="export-modal__cancel-btn" onClick={onClose}>
+                        Cancel
+                    </button>
+                    <button
+                        className="export-modal__export-btn"
+                        onClick={() => { onExport(config); onClose(); }}
+                        disabled={activeSections === 0}
+                    >
+                        <Download size={15} />
+                        Export CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function Analysis() {
     const { selectedDeviceId, currentRobots, taskUpdateVersion, fetchRobotTasks, getLocalTaskHistory } = useDevice();
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [timeRange, setTimeRange] = useState('6h');
-    const [displayInterval, setDisplayInterval] = useState('5 Seconds');
+    const [customTimeStart, setCustomTimeStart] = useState('');
+    const [customTimeEnd, setCustomTimeEnd] = useState('');
+    const [displayIntervalMs, setDisplayIntervalMs] = useState(0); // 0 = all points
     const [chartData, setChartData] = useState([]);
     const [dataSource, setDataSource] = useState('loading'); // 'api', 'empty', 'loading', 'error'
     const [robotData, setRobotData] = useState([]); // HTTP fetched robot data
@@ -52,6 +320,8 @@ function Analysis() {
         humidity: true,
         pressure: true
     });
+    // Export modal state
+    const [exportModalOpen, setExportModalOpen] = useState(false);
 
     // Smart Insight Calculations
     const fleetInsights = useMemo(() => {
@@ -745,31 +1015,252 @@ function Analysis() {
         }));
     };
 
-    const handleExportCSV = () => {
-        if (chartData.length === 0) {
-            alert('No data to export');
-            return;
+    // ── Downsampled chart data for display (controlled by displayIntervalMs state) ──
+    const displayedChartData = useMemo(() => {
+        if (!displayIntervalMs) return chartData;
+        const result = [];
+        let lastTs = -Infinity;
+        chartData.forEach(p => {
+            const ts = new Date(p.fullTime || 0).getTime();
+            if (ts - lastTs >= displayIntervalMs) { result.push(p); lastTs = ts; }
+        });
+        return result;
+    }, [chartData, displayIntervalMs]);
+
+    const displayedRobotChartData = useMemo(() => {
+        if (!displayIntervalMs) return robotChartData;
+        const result = [];
+        let lastTs = -Infinity;
+        robotChartData.forEach(p => {
+            const ts = new Date(p.fullTime || 0).getTime();
+            if (ts - lastTs >= displayIntervalMs) { result.push(p); lastTs = ts; }
+        });
+        return result;
+    }, [robotChartData, displayIntervalMs]);
+
+    // ── Rich CSV export ──────────────────────────────────────────────────────
+    const handleExportWithConfig = (config) => {
+        const { timeRangePreset, customStart, customEnd, interval, sections } = config;
+
+        const hasAny = sections.environment || sections.robotSensors || sections.robotHistory || sections.taskHistory;
+        if (!hasAny) { alert('Please select at least one section to export.'); return; }
+
+        const intervalMs = interval === 'auto' ? 0 : parseInt(interval);
+
+        const intervalLabels = {
+            'auto':    'Auto (all data points)',
+            '5000':    '5 Seconds',
+            '30000':   '30 Seconds',
+            '60000':   '1 Minute',
+            '300000':  '5 Minutes',
+            '900000':  '15 Minutes',
+            '3600000': '1 Hour',
+        };
+
+        const presetLabels = { '1h': 'Last 1 Hour', '6h': 'Last 6 Hours', '12h': 'Last 12 Hours', '24h': 'Last 24 Hours', '7d': 'Last 7 Days' };
+        const timeRangeLabel = timeRangePreset === 'custom' && customStart && customEnd
+            ? `${new Date(customStart).toLocaleString()} → ${new Date(customEnd).toLocaleString()}`
+            : (presetLabels[timeRangePreset] || timeRangePreset);
+
+        // Downsample helper
+        const applyInterval = (data, tsKey = 'fullTime') => {
+            if (!intervalMs) return data;
+            const result = [];
+            let lastTs = -Infinity;
+            data.forEach(p => {
+                const ts = new Date(p[tsKey] || 0).getTime();
+                if (ts - lastTs >= intervalMs) { result.push(p); lastTs = ts; }
+            });
+            return result;
+        };
+
+        // CSV safe escape
+        const esc = (val) => {
+            if (val == null || val === '') return '';
+            const s = String(val);
+            if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+                return `"${s.replace(/"/g, '""')}"`;
+            }
+            return s;
+        };
+        const row = (...cols) => cols.map(esc).join(',');
+        const blank = '';
+        const sectionHeader = (title) => `\n${row(title)}\n`;
+        const colHeader = (...cols) => row(...cols);
+
+        const lines = [];
+
+        // ── Report metadata header ────────────────────────────────────────────
+        lines.push(row('FABRIX FLEET MANAGEMENT SYSTEM — Data Export Report'));
+        lines.push(blank);
+        lines.push(row('Device ID',        selectedDeviceId || 'N/A'));
+        lines.push(row('Export Date',      new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })));
+        lines.push(row('Export Time',      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })));
+        lines.push(row('Time Range',       timeRangeLabel));
+        lines.push(row('Data Interval',    intervalLabels[interval] || interval));
+        lines.push(row('Sections Included', [
+            sections.environment  ? 'Environment Trends'      : null,
+            sections.robotSensors ? 'Robot Fleet Sensors'     : null,
+            sections.robotHistory ? 'Robot Historical Trends' : null,
+            sections.taskHistory  ? 'Task History (24h)'      : null,
+        ].filter(Boolean).join('; ')));
+        lines.push(blank);
+        lines.push(row('Generated By', 'Fabrix Fleet Management System v1.0'));
+        lines.push(blank);
+
+        let sectionNum = 1;
+
+        // ── Section 1: Environment Trends ────────────────────────────────────
+        if (sections.environment) {
+            const data = applyInterval(chartData);
+            lines.push(sectionHeader(`SECTION ${sectionNum++}: ENVIRONMENT TRENDS`));
+            lines.push(row(`Temperature, Humidity & Pressure over time (${data.length} data points)`));
+            lines.push(blank);
+            lines.push(colHeader('#', 'Time', 'Full Date & Time', 'Temperature (°C)', 'Humidity (%)', 'Pressure (hPa)', 'Temp Status', 'Humidity Status'));
+            if (data.length === 0) {
+                lines.push(row('', 'No environment data available for the selected time range.'));
+            } else {
+                data.forEach((r, i) => {
+                    const tempStatus  = r.temp     == null ? '' : r.temp > 35 ? 'CRITICAL' : r.temp > 28 ? 'WARNING' : 'NORMAL';
+                    const humStatus   = r.humidity == null ? '' : r.humidity > 70 ? 'HIGH' : r.humidity < 30 ? 'LOW' : 'NORMAL';
+                    lines.push(row(
+                        i + 1,
+                        r.time || '',
+                        r.fullTime ? new Date(r.fullTime).toLocaleString('en-US', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '',
+                        r.temp     != null ? Number(r.temp).toFixed(2)     : '',
+                        r.humidity != null ? Number(r.humidity).toFixed(2) : '',
+                        r.pressure != null ? Number(r.pressure).toFixed(2) : '',
+                        tempStatus,
+                        humStatus
+                    ));
+                });
+            }
+            lines.push(blank);
         }
 
-        const headers = ['Time', 'Full Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Pressure (hPa)'];
-        const rows = chartData.map(row => [
-            row.time,
-            row.fullTime,
-            row.temp ?? '',
-            row.humidity ?? '',
-            row.pressure ?? ''
-        ]);
+        // ── Section 2: Robot Fleet Sensors ───────────────────────────────────
+        if (sections.robotSensors) {
+            lines.push(sectionHeader(`SECTION ${sectionNum++}: ROBOT FLEET SENSORS`));
+            lines.push(row(`Latest battery & temperature readings for all robots (${chartRobotData.length} robots)`));
+            lines.push(blank);
+            lines.push(colHeader('#', 'Robot ID', 'Robot Name', 'Battery (%)', 'Battery Status', 'Temperature (°C)', 'Temp Status', 'Overall Health'));
+            if (chartRobotData.length === 0) {
+                lines.push(row('', 'No robot sensor data available.'));
+            } else {
+                chartRobotData.forEach((r, i) => {
+                    const bat = r.battery;
+                    const tmp = r.temp;
+                    const batStatus  = bat == null ? '' : bat < 15 ? 'CRITICAL' : bat < 30 ? 'LOW' : bat < 50 ? 'MODERATE' : 'GOOD';
+                    const tmpStatus  = tmp == null ? '' : tmp > 35 ? 'CRITICAL' : tmp > 30 ? 'WARNING' : 'NORMAL';
+                    const health     = (bat != null && bat < 15) || (tmp != null && tmp > 35) ? 'CRITICAL' :
+                                       (bat != null && bat < 30) || (tmp != null && tmp > 30) ? 'WARNING' : 'NOMINAL';
+                    lines.push(row(
+                        i + 1,
+                        r.id   || r.name || '',
+                        r.name || '',
+                        bat != null ? Number(bat).toFixed(1) : '',
+                        batStatus,
+                        tmp != null ? Number(tmp).toFixed(1) : '',
+                        tmpStatus,
+                        health
+                    ));
+                });
+            }
+            lines.push(blank);
+        }
 
-        const csvContent = [
-            headers.join(','),
-            ...rows.map(row => row.join(','))
-        ].join('\n');
+        // ── Section 3: Robot Historical Trends ───────────────────────────────
+        if (sections.robotHistory) {
+            const data = applyInterval(robotChartData);
+            const robotLabel = deviceRobots.find(r => r.id === selectedRobotForHistory)?.name || selectedRobotForHistory || 'N/A';
+            lines.push(sectionHeader(`SECTION ${sectionNum++}: ROBOT HISTORICAL TRENDS — ${robotLabel}`));
+            lines.push(row(`Battery & temperature time-series for ${robotLabel} (${data.length} data points)`));
+            lines.push(blank);
+            lines.push(colHeader('#', 'Time', 'Full Date & Time', 'Battery (%)', 'Battery Status', 'Temperature (°C)', 'Temp Status'));
+            if (data.length === 0) {
+                lines.push(row('', 'No historical data available for the selected robot and time range.'));
+            } else {
+                data.forEach((r, i) => {
+                    const batStatus = r.battery == null ? '' : r.battery < 15 ? 'CRITICAL' : r.battery < 30 ? 'LOW' : 'GOOD';
+                    const tmpStatus = r.temp    == null ? '' : r.temp > 35 ? 'CRITICAL' : r.temp > 30 ? 'WARNING' : 'NORMAL';
+                    lines.push(row(
+                        i + 1,
+                        r.time || '',
+                        r.fullTime ? new Date(r.fullTime).toLocaleString('en-US', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '',
+                        r.battery != null ? Number(r.battery).toFixed(1) : '',
+                        batStatus,
+                        r.temp    != null ? Number(r.temp).toFixed(1)    : '',
+                        tmpStatus
+                    ));
+                });
+            }
+            lines.push(blank);
+        }
 
+        // ── Section 4: Task History ───────────────────────────────────────────
+        if (sections.taskHistory) {
+            const allEntries = Object.values(robotTaskMap).flat();
+            lines.push(sectionHeader(`SECTION ${sectionNum++}: ROBOT TASK HISTORY (Last 24 Hours)`));
+            lines.push(row(`All task entries across all robots (${allEntries.length} total entries)`));
+            lines.push(blank);
+            lines.push(colHeader('#', 'Robot ID', 'Robot Name', 'Task ID', 'Task Name', 'Status', 'Phase', 'Progress (%)', 'Source Location', 'Destination', 'Allocated At', 'Start Time', 'Completion Time', 'Elapsed Time', 'Data Source'));
+            if (allEntries.length === 0) {
+                lines.push(row('', 'No task history available.'));
+            } else {
+                let idx = 1;
+                Object.entries(robotTaskMap).forEach(([robotId, tasks]) => {
+                    tasks.forEach(t => {
+                        const formatElapsed = (ms) => {
+                            if (!ms) return '';
+                            const secs = Math.floor(ms / 1000);
+                            if (secs < 60) return `${secs}s`;
+                            const mins = Math.floor(secs / 60);
+                            if (mins < 60) return `${mins}m ${secs % 60}s`;
+                            return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+                        };
+                        const formatTs = (ts) => ts ? new Date(ts).toLocaleString('en-US', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : '';
+                        lines.push(row(
+                            idx++,
+                            robotId,
+                            t.robotName || robotId,
+                            t.taskId || '',
+                            t.taskName || 'Deliver',
+                            t.status   || '',
+                            t.phase    || '',
+                            t.progress != null ? t.progress : '',
+                            t.sourceLocation      || '',
+                            t.destinationLocation || '',
+                            formatTs(t.allocatedAt),
+                            formatTs(t.startTime),
+                            formatTs(t.completionTime),
+                            formatElapsed(t.elapsedMs),
+                            t.source   || ''
+                        ));
+                    });
+                });
+            }
+            lines.push(blank);
+        }
+
+        // ── Export summary footer ──────────────────────────────────────────────
+        lines.push(sectionHeader('EXPORT SUMMARY'));
+        lines.push(row('Total Data Rows',   lines.filter(l => l && l.match(/^\d+,/)).length));
+        lines.push(row('Generated By',      'Fabrix Fleet Management System'));
+        lines.push(row('Export Timestamp',  new Date().toISOString()));
+
+        // Build blob with UTF-8 BOM (for proper Excel rendering)
+        const bom = '\uFEFF';
+        const csvContent = bom + lines.join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `${selectedDeviceId}_data.csv`;
+        const dateStr  = new Date().toISOString().slice(0, 10);
+        const timeStr  = new Date().toTimeString().slice(0, 5).replace(':', '-');
+        link.download = `FMS_${selectedDeviceId || 'device'}_${timeRangePreset}_${dateStr}_${timeStr}.csv`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
     };
 
     const metricColors = { temp: '#D97706', humidity: '#059669', battery: '#7C3AED', pressure: '#3B82F6' };
@@ -848,11 +1339,23 @@ function Analysis() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                         <span className="analysis-chart-title">Historical Environmental Trends</span>
                         <div className="analysis-controls">
-                            <button className={`analysis-filter-pill ${timeRange === '6h' ? 'analysis-filter-pill--active' : ''}`} onClick={() => setTimeRange('6h')}>
-                                <Clock size={12} /> Last 6 Hours
-                            </button>
-                            <button className="analysis-filter-pill">{displayInterval}</button>
-                            <button className="analysis-filter-pill">{chartData.length} points</button>
+                            {[
+                                { value: '1h',  label: 'Last 1h' },
+                                { value: '6h',  label: 'Last 6h' },
+                                { value: '12h', label: 'Last 12h' },
+                                { value: '24h', label: 'Last 24h' },
+                            ].map(opt => (
+                                <button
+                                    key={opt.value}
+                                    className={`analysis-filter-pill${timeRange === opt.value ? ' analysis-filter-pill--active' : ''}`}
+                                    onClick={() => setTimeRange(opt.value)}
+                                >
+                                    <Clock size={12} /> {opt.label}
+                                </button>
+                            ))}
+                            <span className="analysis-filter-pill" style={{ cursor: 'default', background: '#F3F4F6' }}>
+                                {displayedChartData.length} pts
+                            </span>
                         </div>
                     </div>
 
@@ -876,24 +1379,39 @@ function Analysis() {
                     </div>
                 </div>
 
-                <div className="analysis-controls">
+                {/* Chart toolbar — refresh, interval, export */}
+                <div className="analysis-controls" style={{ marginBottom: '16px' }}>
                     <button className="analysis-export-btn" onClick={fetchData} disabled={isLoading} aria-label="Refresh">
                         <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
                     </button>
-                    <button className="analysis-export-btn" onClick={handleExportCSV}>
+
+                    {/* Interval selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <SlidersHorizontal size={13} style={{ color: '#6B7280' }} />
+                        <select
+                            className="analysis-select"
+                            value={displayIntervalMs}
+                            onChange={e => setDisplayIntervalMs(Number(e.target.value))}
+                            title="Data interval (display sampling)"
+                        >
+                            <option value={0}>All Points</option>
+                            <option value={5000}>5 Seconds</option>
+                            <option value={30000}>30 Seconds</option>
+                            <option value={60000}>1 Minute</option>
+                            <option value={300000}>5 Minutes</option>
+                            <option value={900000}>15 Minutes</option>
+                            <option value={3600000}>1 Hour</option>
+                        </select>
+                    </div>
+
+                    <button className="analysis-export-btn analysis-export-btn--primary" onClick={() => setExportModalOpen(true)}>
                         <Download size={14} /> Export CSV
                     </button>
-                    <select className="analysis-select" value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-                        <option value="1h">1h</option>
-                        <option value="6h">6h</option>
-                        <option value="12h">12h</option>
-                        <option value="24h">24h</option>
-                    </select>
                 </div>
 
                 <div className="analysis-chart-container">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
+                        <LineChart data={displayedChartData}>
                             <defs>
                                 <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor={metricColors.temp} stopOpacity={0.1} />
@@ -945,7 +1463,7 @@ function Analysis() {
 
                 <div className="analysis-chart-container analysis-chart-container--tall">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={robotChartData} margin={{ top: 20, right: 60, left: 20, bottom: 5 }}>
+                        <LineChart data={displayedRobotChartData} margin={{ top: 20, right: 60, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                             <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9CA3AF' }} />
                             <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#7C3AED' }} unit="%" domain={[0, 100]} />
@@ -1236,6 +1754,20 @@ function Analysis() {
                     })
                 )}
             </div>
+
+            {/* Export Configuration Modal */}
+            <ExportModal
+                isOpen={exportModalOpen}
+                onClose={() => setExportModalOpen(false)}
+                onExport={handleExportWithConfig}
+                deviceId={selectedDeviceId}
+                chartData={chartData}
+                chartRobotData={chartRobotData}
+                robotChartData={robotChartData}
+                robotTaskMap={robotTaskMap}
+                deviceRobots={deviceRobots}
+                selectedRobotForHistory={selectedRobotForHistory}
+            />
         </div>
     );
 }

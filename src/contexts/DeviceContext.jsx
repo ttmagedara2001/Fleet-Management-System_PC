@@ -460,21 +460,23 @@ export function DeviceProvider({ children }) {
             const mode = parsed.systemMode || 'MANUAL';
 
             if (mode === 'AUTOMATIC') {
-                // Throttle auto actions per device
+                // Throttle auto actions per device (critical = 10s, normal = 30s)
                 const now = Date.now();
                 const last = autoActionTimestamps.current[deviceId] || 0;
-                if (now - last > 30000) { // 30s throttle
+                const tempVal = payload.temperature ?? payload.temp ?? payload.ambient_temp;
+                const humVal = payload.humidity ?? payload.ambient_hum;
+                const isCritical = (tempVal != null && tempVal > thresholds.temperature.critical) ||
+                                   (humVal != null && humVal > thresholds.humidity.critical);
+                const throttleMs = isCritical ? 10000 : 30000;
+
+                if (now - last > throttleMs) {
                     autoActionTimestamps.current[deviceId] = now;
 
-                    // Decide AC state
-                    const temp = payload.temperature ?? payload.temp ?? payload.ambient_temp;
-                    if (temp != null) {
-                        // NOTE: Auto behavior: when temperature is BELOW min, enable AC (turn ON)
-                        // and when temperature is ABOVE max, disable AC (turn OFF).
-                        // This treats AC as the actuator used to heat when low; adjust if your device
-                        // interprets ON/OFF the other way around.
-                        if (temp < thresholds.temperature.min) {
-                            // Turn AC ON (temperature is low)
+                    // AC control: turn ON when temperature exceeds max or critical (cooling),
+                    // turn OFF when temperature drops back below min (no cooling needed)
+                    if (tempVal != null) {
+                        if (tempVal > thresholds.temperature.max) {
+                            // Temperature is high or critical — turn AC ON to cool
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
@@ -483,8 +485,8 @@ export function DeviceProvider({ children }) {
                                     console.error('[AutoControl] Failed to set AC ON', err);
                                 }
                             })();
-                        } else if (temp > thresholds.temperature.max) {
-                            // Turn AC OFF (temperature is high)
+                        } else if (tempVal < thresholds.temperature.min) {
+                            // Temperature is low — turn AC OFF (no cooling needed)
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
@@ -496,11 +498,10 @@ export function DeviceProvider({ children }) {
                         }
                     }
 
-                    // Decide Air Purifier state based on humidity or active alerts
-                    const hum = payload.humidity ?? payload.ambient_hum;
+                    // Air Purifier control: activate when humidity exceeds max/critical or active alert
                     const hasAlert = payload.alert || payload.active_alert;
-                    if (hum != null) {
-                        if (hum > thresholds.humidity.max || hasAlert) {
+                    if (humVal != null) {
+                        if (humVal > thresholds.humidity.max || hasAlert) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'ACTIVE' });
@@ -509,7 +510,7 @@ export function DeviceProvider({ children }) {
                                     console.error('[AutoControl] Failed to set Air Purifier ACTIVE', err);
                                 }
                             })();
-                        } else if (hum < thresholds.humidity.min) {
+                        } else if (humVal < thresholds.humidity.min) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'INACTIVE' });
@@ -524,42 +525,57 @@ export function DeviceProvider({ children }) {
             }
 
             // Manual mode advisory: notify the user to turn on AC / Air Purifier
+            // Critical conditions use a shorter throttle (30s) for urgency; warnings use 60s
             if (mode === 'MANUAL') {
                 const now = Date.now();
-                const lastManual = autoActionTimestamps.current[`${deviceId}_manual`] || 0;
-                if (now - lastManual > 60000) { // throttle manual advisories to once per 60s
-                    const currentAc = deviceData[deviceId]?.state?.ac_power;
-                    const currentPurifier = deviceData[deviceId]?.state?.air_purifier;
-                    const acIsOff = !currentAc || currentAc === 'OFF' || currentAc === 'INACTIVE';
-                    const purifierIsOff = !currentPurifier || currentPurifier === 'OFF' || currentPurifier === 'INACTIVE';
+                const currentAc = deviceData[deviceId]?.state?.ac_power;
+                const currentPurifier = deviceData[deviceId]?.state?.air_purifier;
+                const acIsOff = !currentAc || currentAc === 'OFF' || currentAc === 'INACTIVE';
+                const purifierIsOff = !currentPurifier || currentPurifier === 'OFF' || currentPurifier === 'INACTIVE';
 
-                    const tempVal = payload.temperature ?? payload.temp ?? payload.ambient_temp;
-                    const humVal = payload.humidity ?? payload.ambient_hum;
-                    let advised = false;
+                const tempVal = payload.temperature ?? payload.temp ?? payload.ambient_temp;
+                const humVal = payload.humidity ?? payload.ambient_hum;
 
-                    // Advise turning on AC when temperature exceeds thresholds and AC is off
-                    if (tempVal != null && acIsOff && (tempVal > thresholds.temperature.max || tempVal < thresholds.temperature.min)) {
+                // --- Temperature → AC advisory ---
+                if (tempVal != null && acIsOff) {
+                    const isTempCritical = tempVal > thresholds.temperature.critical;
+                    const isTempWarning = tempVal > thresholds.temperature.max || tempVal < thresholds.temperature.min;
+                    const throttleKey = `${deviceId}_manual_ac`;
+                    const lastAc = autoActionTimestamps.current[throttleKey] || 0;
+                    const acThrottleMs = isTempCritical ? 30000 : 60000;
+
+                    if ((isTempCritical || isTempWarning) && (now - lastAc > acThrottleMs)) {
+                        autoActionTimestamps.current[throttleKey] = now;
                         addAlert({
-                            type: 'warning',
+                            type: isTempCritical ? 'critical' : 'warning',
                             deviceId,
-                            message: `Manual Mode: Temperature is ${tempVal}°C — please turn ON the Air Condition (AC) from the dashboard controls`,
+                            message: isTempCritical
+                                ? `CRITICAL — Temperature at ${tempVal}°C! Immediately turn ON the Air Condition (AC) from dashboard controls`
+                                : `Manual Mode: Temperature is ${tempVal}°C — please turn ON the Air Condition (AC) from dashboard controls`,
                             timestamp: Date.now()
                         });
-                        advised = true;
                     }
+                }
 
-                    // Advise turning on Air Purifier when humidity exceeds thresholds and purifier is off
-                    if (humVal != null && purifierIsOff && (humVal > thresholds.humidity.max || humVal < thresholds.humidity.min)) {
+                // --- Humidity → Air Purifier advisory ---
+                if (humVal != null && purifierIsOff) {
+                    const isHumCritical = humVal > thresholds.humidity.critical;
+                    const isHumWarning = humVal > thresholds.humidity.max || humVal < thresholds.humidity.min;
+                    const throttleKey = `${deviceId}_manual_purifier`;
+                    const lastPurifier = autoActionTimestamps.current[throttleKey] || 0;
+                    const purifierThrottleMs = isHumCritical ? 30000 : 60000;
+
+                    if ((isHumCritical || isHumWarning) && (now - lastPurifier > purifierThrottleMs)) {
+                        autoActionTimestamps.current[throttleKey] = now;
                         addAlert({
-                            type: 'warning',
+                            type: isHumCritical ? 'critical' : 'warning',
                             deviceId,
-                            message: `Manual Mode: Humidity is ${humVal}% — please turn ON the Air Purifier from the dashboard controls`,
+                            message: isHumCritical
+                                ? `CRITICAL — Humidity at ${humVal}%! Immediately turn ON the Air Purifier from dashboard controls`
+                                : `Manual Mode: Humidity is ${humVal}% — please turn ON the Air Purifier from dashboard controls`,
                             timestamp: Date.now()
                         });
-                        advised = true;
                     }
-
-                    if (advised) autoActionTimestamps.current[`${deviceId}_manual`] = now;
                 }
             }
         } catch (err) {
