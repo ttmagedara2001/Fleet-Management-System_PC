@@ -32,7 +32,8 @@ Inline: $health = \dfrac{battery_{pct}}{100}$
 
 This yields a score in $[0,1]$. Labels (implementation thresholds):
 
-- `Good`: $battery_{pct} \ge 70$ (score $\ge 0.70$)
+- `Excellent`: $battery_{pct} \ge 90$ (score $\ge 0.90$)
+- `Good`: $70 \le battery_{pct} < 90$ (score $0.70$--$0.89$)
 - `Fair`: $40 \le battery_{pct} < 70$ (score $0.40$--$0.69$)
 - `Low`: $15 \le battery_{pct} < 40$ (score $0.15$--$0.39$)
 - `Critical`: $battery_{pct} < 15$ (score $< 0.15$)
@@ -73,3 +74,14 @@ Implementation note: see `src/utils/telemetryMath.js` for exact behavior and fal
 1. Run the app as you normally do (e.g., `npm run dev` for Vite setups).
 2. Open the dashboard and observe robot cards: the battery metric will now show a percent and health label (Good/Fair/Low/Critical).
 3. If tasks provide `progress`, `initialDistance`/`remainingDistance`, or `stepsCompleted`/`totalSteps`, the task progress bar will reflect the computed completion.
+
+**Telemetry Math Enhancements**
+
+- **Battery Health**: Added thresholds for better granularity:
+  - `Excellent`: $battery_{pct} \ge 90$
+  - `Good`: $70 \le battery_{pct} < 90$
+  - `Fair`: $40 \le battery_{pct} < 70$
+  - `Low`: $15 \le battery_{pct} < 40$
+  - `Critical`: $battery_{pct} < 15$
+
+- **Task Completion**: Updated formulas to handle edge cases (e.g., zero distances or steps).

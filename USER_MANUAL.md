@@ -87,6 +87,14 @@ Use the **Sidebar** to switch between pages:
 | 📈   | Analysis  | Historical data & charts   |
 | ⚙️   | Settings  | Configuration & thresholds |
 
+### 2.4 New Features
+
+Fabrix now includes the following enhancements:
+
+- **Optimized Device Control**: Real-time toggling for HVAC and air purification systems.
+- **Enhanced Alerts**: Customizable thresholds for environmental monitoring.
+- **Improved Analysis Tools**: Exportable charts and detailed insights.
+
 > Tip: Use the eye icon in the Sidebar header to hide or show sidebar textual content (icons-only mode). The selection persists across sessions.
 
 ---
@@ -94,6 +102,19 @@ Use the **Sidebar** to switch between pages:
 ## 3. Dashboard Overview
 
 The Dashboard is your primary monitoring interface, divided into four main panels:
+
+### 3.1 Key Panels
+
+The Dashboard includes the following panels:
+
+- **Robot Fleet Panel**: Displays the status and location of all robots.
+- **Alerts Panel**: Highlights critical alerts and notifications.
+- **Device Environment Panel**: Shows temperature, humidity, and air quality data.
+- **Facility Map**: Interactive map for real-time robot tracking.
+
+### 3.2 Customization
+
+Users can customize the Dashboard layout by dragging and resizing panels. Settings are saved automatically.
 
 ### 3.1 Layout
 

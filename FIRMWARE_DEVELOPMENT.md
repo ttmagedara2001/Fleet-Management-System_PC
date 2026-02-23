@@ -24,6 +24,61 @@ This document describes recommended practices, messaging contracts, and developm
 - Sensors: IMU/GPS (if GPS required), battery fuel gauge, temperature sensors
 - Secure storage for credentials (secure element or flash encrypted region)
 
+## Updated Protocols
+
+### Emergency Stop
+
+- **New Behavior**: Robots must log the emergency stop event locally for debugging.
+- **Extended Payload**:
+
+```json
+{
+  "emergency_stop": true,
+  "reason": "Obstacle detected"
+}
+```
+
+### Location Payload
+
+- **New Fields**:
+  - `altitude_m`: Optional altitude in meters.
+  - `battery_pct`: Include battery percentage for context.
+
+Example:
+
+```json
+{
+  "robotId": "R-001",
+  "lat": 37.422033,
+  "lng": -122.084095,
+  "altitude_m": 15.2,
+  "battery_pct": 85,
+  "speed_m_s": 0.6
+}
+```
+
+### Task Assignment Contract
+
+- **New Fields**:
+  - `eta`: Estimated time of arrival.
+  - `dependencies`: List of task IDs that must complete first.
+
+Example:
+
+```json
+{
+  "taskId": "TSK-001",
+  "type": "Delivery",
+  "destination": {
+    "lat": 37.422033,
+    "lng": -122.084095
+  },
+  "priority": "High",
+  "eta": "2026-02-23T12:00:00Z",
+  "dependencies": ["TSK-000"]
+}
+```
+
 ## Communication Protocols
 
 - Primary protocol: MQTT over TLS for robust connectivity

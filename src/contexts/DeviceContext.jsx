@@ -472,9 +472,14 @@ export function DeviceProvider({ children }) {
                 if (now - last > throttleMs) {
                     autoActionTimestamps.current[deviceId] = now;
 
-                    // AC control: turn ON when temperature exceeds max or critical (cooling),
-                    // turn OFF when temperature drops back below min (no cooling needed)
+                    // AC control:
+                    //   ON  — temp exceeds max threshold (needs cooling)
+                    //   OFF — temp returns to normal band [min, max] while AC is ON (cooling done)
+                    //   OFF — temp drops below min (no cooling ever needed)
                     if (tempVal != null) {
+                        const currentAcPower = deviceData[deviceId]?.state?.ac_power;
+                        const acIsOn = currentAcPower === 'ON' || currentAcPower === 'ACTIVE';
+
                         if (tempVal > thresholds.temperature.max) {
                             // Temperature is high or critical — turn AC ON to cool
                             (async () => {
@@ -494,8 +499,12 @@ export function DeviceProvider({ children }) {
                                     console.error('[AutoControl] Failed to set AC ON', err);
                                 }
                             })();
-                        } else if (tempVal < thresholds.temperature.min) {
-                            // Temperature is low — turn AC OFF (no cooling needed)
+                        } else if (
+                            acIsOn &&
+                            tempVal >= thresholds.temperature.min &&
+                            tempVal <= thresholds.temperature.max
+                        ) {
+                            // Temperature has returned to normal range — turn AC OFF (cooling done)
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
@@ -510,7 +519,26 @@ export function DeviceProvider({ children }) {
                                     }));
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
-                                    console.error('[AutoControl] Failed to set AC OFF', err);
+                                    console.error('[AutoControl] Failed to set AC OFF (normal range)', err);
+                                }
+                            })();
+                        } else if (tempVal < thresholds.temperature.min) {
+                            // Temperature is too low — turn AC OFF (no cooling needed)
+                            (async () => {
+                                try {
+                                    await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
+                                    // Optimistic UI update — flip the toggle immediately
+                                    setDeviceData(prev => ({
+                                        ...prev,
+                                        [deviceId]: {
+                                            ...prev[deviceId],
+                                            state: { ...prev[deviceId]?.state, ac_power: 'OFF' },
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
+                                    if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
+                                } catch (err) {
+                                    console.error('[AutoControl] Failed to set AC OFF (below min)', err);
                                 }
                             })();
                         }
