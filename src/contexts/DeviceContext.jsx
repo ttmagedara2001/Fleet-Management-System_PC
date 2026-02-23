@@ -480,6 +480,15 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'ON' });
+                                    // Optimistic UI update — flip the toggle immediately
+                                    setDeviceData(prev => ({
+                                        ...prev,
+                                        [deviceId]: {
+                                            ...prev[deviceId],
+                                            state: { ...prev[deviceId]?.state, ac_power: 'ON' },
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.error('[AutoControl] Failed to set AC ON', err);
@@ -490,6 +499,15 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/ac', { status: 'OFF' });
+                                    // Optimistic UI update — flip the toggle immediately
+                                    setDeviceData(prev => ({
+                                        ...prev,
+                                        [deviceId]: {
+                                            ...prev[deviceId],
+                                            state: { ...prev[deviceId]?.state, ac_power: 'OFF' },
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.error('[AutoControl] Failed to set AC OFF', err);
@@ -505,6 +523,15 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'ACTIVE' });
+                                    // Optimistic UI update — flip the toggle immediately
+                                    setDeviceData(prev => ({
+                                        ...prev,
+                                        [deviceId]: {
+                                            ...prev[deviceId],
+                                            state: { ...prev[deviceId]?.state, air_purifier: 'ACTIVE' },
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.error('[AutoControl] Failed to set Air Purifier ACTIVE', err);
@@ -514,6 +541,15 @@ export function DeviceProvider({ children }) {
                             (async () => {
                                 try {
                                     await updateStateDetails(deviceId, 'fleetMS/airPurifier', { status: 'INACTIVE' });
+                                    // Optimistic UI update — flip the toggle immediately
+                                    setDeviceData(prev => ({
+                                        ...prev,
+                                        [deviceId]: {
+                                            ...prev[deviceId],
+                                            state: { ...prev[deviceId]?.state, air_purifier: 'INACTIVE' },
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
                                     if (refreshDeviceStateRef.current) await refreshDeviceStateRef.current();
                                 } catch (err) {
                                     console.error('[AutoControl] Failed to set Air Purifier INACTIVE', err);
