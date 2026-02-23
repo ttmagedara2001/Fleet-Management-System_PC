@@ -1,0 +1,63 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Allow the workflow to write to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; cancel in-progress runs on new pushes
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Map GitHub Secrets → Vite environment variables ──────────────────
+      # All Vite env vars are baked into the bundle at build time, so they
+      # MUST be present here (not at runtime). Each secret is set below as an
+      # env var that Vite will pick up automatically during `vite build`.
+      - name: Build (production)
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+          VITE_USER_EMAIL: ${{ secrets.VITE_USER_EMAIL }}
+          VITE_USER_PASSWORD: ${{ secrets.VITE_USER_PASSWORD }}
+        run: npm run build
+
+      # ── Upload the compiled dist/ folder as a Pages artifact ─────────────
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+# ── . Deploy to Vercel ─────────────────────────────────────────────
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }} # Required
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }} # Required
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }} # Required
+          vercel-args: '--prod' # This makes the deployment live (Production)
+          working-directory: ./

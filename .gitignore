@@ -12,10 +12,12 @@ dist
 dist-ssr
 *.local
 
-# Environment variables
+# Environment variables — never commit real secrets
 .env
 .env.local
-.env.example
+.env.production
+.env.*.local
+# .env.example is intentionally NOT listed here so it can be committed as a template
 
 # Editor directories and files
 .vscode/*
@@ -27,3 +29,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*.local
